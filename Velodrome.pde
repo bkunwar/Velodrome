@@ -3,11 +3,13 @@
 //Simplified version of the Verlet algorithm
 //import processing.opengl.*;
       
-int m = 11,
+int m = 10,
     CentralNode = int(float(m)*(8+float(m)/2)+(float(m)+1)%2*float(m)/2), // Node closest to the centre
     Iteration,
-    LastNode=m*(m+8)-1, // Counting from zero
-    LastMember=2*m*(m+9)-1; // Counting from zero
+    n = int(m/2), // m over 2 rounded down which gives the number of extra cables on each side
+    o = int((m-1)/2), // m minus 1 over 2 rounded down
+    LastNode=m*(m+8)+(4*n)*(m-n-1)-1, // Counting from zero
+    LastMember=2*m*(m+9)+4*o*(m-o)-1; // Counting from zero
 
 int[] ForceColour = new int[3];
       
@@ -17,19 +19,18 @@ int [][] End = new int[LastMember+1][2],
 float PTextX = 50.0,
       PTextY = 50.0,
       DTextY = 20.0,
-      zRot = 0.0,
-      xRot = 0.0,
       MyMouseX = 0.0,
       MyMouseY = 0.0,
       MyMouseXpressed = 0.0,
       MyMouseYpressed = 0.0,
-      xTrans = 0.0,
-      yTrans = 0.0,
+      xTrans,
+      yTrans,
+      zRot,
+      xRot,  
       MaxForce,
       ForceRatio,
-      Scaler,
-      RelaxationRate = 0.98,
-      ScaleFactor = 100,      
+      LongestSpan,
+      RelaxationRate = 0.98,     
       Load = 100.00,        
       dX,
       dY,
@@ -38,6 +39,7 @@ float PTextX = 50.0,
       Y0,
       Z0,
       Theta,
+      ScaleFactor,
       InitialRotation = PI/4*(5+1/float(m)),        // Rotate by Theta/2 and then 270 degrees 5*PI/4+PI/(4*m)
       OuterRingScale = 1+PI*sqrt(3)/4.0/float(m);  // Renders the internal truss members the same length as the external members      
       
@@ -53,7 +55,7 @@ float[][] Coord,
     
 boolean Relaxable = true, 
         ForceColoured = false, 
-        MemberColoured = true, 
+        MemberColoured = false, 
         FirstMemberColoured = true,
         Fast = false,
         Released = false;
@@ -76,20 +78,25 @@ void setup(){
   Force = new float[LastNode+1][3];
   Veloc = new float[LastNode+1][3];
 
-  Scaler = float(height)/(1.5*2.0*ScaleFactor);
+  zRot = 0.0;
+  xRot = 0.0;
+  xTrans = 0.0;
+  yTrans = 0.0;  
 
-  float xScale = 1.00,
-        yScale = 1.00,
-        zScale = 0.25;
+  float xScale = 1.0,
+        yScale = 1.0,
+        zScale = 0.5,
+        NetScale = 1/sqrt(2)*(1-PI/4/float(m)); // To make the net fit within the truss ring
         
-  float NetEA = 100.0,
-        NetT0 = 300,//1.0*NetEA,
-        EdgeEA = pow(10,3)*NetEA,
+  LongestSpan = 2000.0;
+  ScaleFactor = float(height)/(3.0*LongestSpan);
+        
+  float NetEA = 400.0/float(m),
+        NetT0 = 1.0*NetEA,
+        EdgeEA = pow(10,4)*NetEA,
         EdgeT0 = 0;              //-EdgeEA/float(m),
   
   Iteration = 0;
-  
-
 
   {
     int Node=-1;
@@ -99,9 +106,8 @@ void setup(){
     {
       Node++;
       Theta = 2*PI*i/(4*m)+InitialRotation;
-      Coord[Node][0]=Scaler*cos(Theta)/float(m/m)*xScale;//Position in x axis
-      Coord[Node][1]=Scaler*sin(Theta)/float(m/m)*yScale;//Position in y axis
-      Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/Scaler;//Position in z axis
+      Coord[Node][0]=xScale*LongestSpan*cos(Theta);//Position in x axis
+      Coord[Node][1]=yScale*LongestSpan*sin(Theta);//Position in y axis
       if ((i+1)%1==0) for (int xyz=0;xyz<=2;xyz++) Fixed[Node][xyz]=1;
     }
     
@@ -110,9 +116,8 @@ void setup(){
     {
       Node++;
       Theta = 2*PI*i/(4*m)+PI/(4*m)+InitialRotation;
-      Coord[Node][0]=OuterRingScale*Scaler*cos(Theta)/float(m/m)*xScale;//Position in x axis
-      Coord[Node][1]=OuterRingScale*Scaler*sin(Theta)/float(m/m)*yScale;//Position in y axis
-      Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/Scaler;//Position in z axis
+      Coord[Node][0]=xScale*OuterRingScale*LongestSpan*cos(Theta);//Position in x axis
+      Coord[Node][1]=yScale*OuterRingScale*LongestSpan*sin(Theta);//Position in y axis
       if ((i+1)%1==0) for (int xyz=0;xyz<=2;xyz++) Fixed[Node][xyz]=1;
     }
     
@@ -122,12 +127,37 @@ void setup(){
       for(int i=0;i<m;i++)
       {
           Node++;
-          Coord[Node][0]=Scaler*(i-float(m-1)/2)/float(m); //Position in x axis
-          Coord[Node][1]=Scaler*(j-float(m-1)/2)/float(m); //Position in y axis
-          Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/Scaler;//Position in z axis
+          Coord[Node][0]=Coord[i][0]; //Position in x axis
+          Coord[Node][1]=Coord[m+j][1]; //Position in y axis
+          /*
+          Coord[Node][0]=xScale*NetScale*LongestSpan*(i-float(m-1))/Divider; //Position in x axis
+          Coord[Node][1]=yScale*NetScale*LongestSpan*(j-float(m-1))/Divider; //Position in y axis
+          */
       }
     }
+
+    for(int k=0;k<4;k++)
+    {
+      for(int j=1;j<=n;j++)
+      {
+        for(int i=j;i<m-j;i++)
+        {
+          Node++;
+          int xNode = (i+m*k)*((k+1)%2)+(j-1+m*k)*(k%2);
+          int yNode = (i+m*k)*(k%2)+(j-1+m*k)*((k+1)%2);
+          Coord[Node][0]=Coord[xNode][0]; //Position in x axis
+          Coord[Node][1]=Coord[yNode][1]; //Position in y axis          
+          //println("Node "+Node+": "+xNode+" "+yNode);
+          //println(Node+": "+(i)+" "+(j-1)+" "+k);
+        }
+      }
+    }
+    
     println("Check on last node number: Should be " + Node + " and is "+ LastNode);
+    
+    for (Node=0;Node<=LastNode;Node++){
+      Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/LongestSpan;//Position in z axis
+    }
   }
   {
     int Member = -1;
@@ -165,6 +195,7 @@ void setup(){
       End[Member][1]=i+4*m;
     }
     
+/*
     // Edge Cables
     for(int j=0;j<m;j++)
     {
@@ -192,8 +223,76 @@ void setup(){
         }  
       }
     }
+ */
+ 
+    for(int k=0;k<4;k++)
+    {
+      int ThisSide=m*(m+8)+k*n*(m-n-1)-1;
+      for(int j=1;j<=o;j++)
+      {
+        Member++;
+        End[Member][0]=k*m+j-1;
+        for(int i=j;i<m-j;i++)
+        {
+          ThisSide++;
+          End[Member][1]=ThisSide;
+          //println("Connect "+End[Member][0]+" "+End[Member][1]);
+          Member++;
+          End[Member][0]=End[Member-1][1];
+          //println(Member+": "+(ThisSide+i*j)+" "+i+" "+(j)+" "+k);
+        }
+        End[Member][1]=k*m+m-j;
+        //println("Connect "+End[Member][0]+" "+End[Member][1]);        
+      }
+    }
+    
+    for(int k=0;k<4;k++)
+    {
+      int ThisSide=m*(m+8)+k*n*(m-n-1)-1;
+      for(int j=1;j<=o;j++)
+      {
+        for(int i=j;i<m-j;i++)
+        {
+          ThisSide++;
+          if (i==j||i==m-j-1){
+            Member++;            
+            End[Member][0]=m*k+i;
+            End[Member][1]=ThisSide;
+            //println("Connect "+End[Member][0]+" "+End[Member][1]);            
+          } else {
+            Member++;            
+            End[Member][0]=ThisSide;
+            End[Member][1]=ThisSide+(m-1)-j*2;
+            //println("Connect "+End[Member][0]+" "+End[Member][1]);            
+           
+          }
+        }     
+      }
+    }    
+    
+    /*
+    for(int k=0;k<4;k++)
+    {
+      int ThisSide=m*(m+8)+k*n*(m-n-1)-1;
+      for(int j=1;j<m-1;j++)
+      {
+        Member++;
+        End[Member][0]=m*k+j;
+        End[Member][1]=ThisSide+j;
+        //println("Connect "+End[Member][0]+" "+End[Member][1]);   
+        for(int i=j;i<m-j;i++)
+        {
+          //Member++;
+          //ThisSide++;
+          //println(Member+": "+ThisSide+" "+i+" "+j+" "+k);
+        }
+        //End[Member][1]=k*m+m-j;
+        //println("Connect "+End[Member][0]+" "+End[Member][1]);        
+      }
+    }  
+    */
 
-    // Cable Net  
+    // Inner Cable Net
     for(int j=0;j<m;j++)
     {
       for(int i=0;i<m;i++)
@@ -211,10 +310,12 @@ void setup(){
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }
       }
-    }    
+    }
     
     println("Check on last member number: Should be " + Member + " and is "+ LastMember);
     LastMember = Member;    
+    
+    
     
     for (Member=0;Member<=LastMember;Member++){
       if (Member<16*m){
@@ -222,20 +323,14 @@ void setup(){
         EA[Member] = EdgeEA;
         T0[Member] = EdgeT0;
       } else {
-        L0[Member] = float(m)/100;
+        L0[Member] = Length(Member);
         EA[Member] = NetEA;
-        T0[Member] = NetT0;        
+        T0[Member] = NetT0;
       }
     }
   }
   
-  for(int Node=0;Node<=LastNode;Node++) Stiffness[Node]=0.0;
-  
-  for(int Member=0;Member<=LastMember;Member++)
-  {
-    Stiffness[End[Member][0]]+=EA[Member]/L0[Member];
-    Stiffness[End[Member][1]]+=EA[Member]/L0[Member];
-  }
+  ResetNodeStiffness(0,LastMember);
   
   X0 = Coord[int(5.5*float(m))-1][0]-Coord[int(7.5*float(m))-1][0];
   Y0 = Coord[int(6.5*float(m))-1][1]-Coord[int(4.5*float(m))-1][1];
@@ -280,12 +375,12 @@ void draw() {
     
     // UDL in x, y or z direction 
 
-    if(key=='g') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][0]+=Load/pow(m,2);
-    if(key=='j') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][0]-=Load/pow(m,2);
-    if(key=='y') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][1]+=Load/pow(m,2);
-    if(key=='h') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][1]-=Load/pow(m,2);
-    if(key=='o') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][2]+=Load/pow(m,2);
+    if(key=='g') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][0]-=Load/pow(m,2);
+    if(key=='j') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][0]+=Load/pow(m,2);
+    if(key=='y') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][1]-=Load/pow(m,2);
+    if(key=='h') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][1]+=Load/pow(m,2);
     if(key=='k') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][2]-=Load/pow(m,2);
+    if(key=='o') for(int Node=8*m;Node<=LastNode;Node++) Force[Node][2]+=Load/pow(m,2);    
     
 //    if(key=='t') println (TensionCoefficient);
     
@@ -310,7 +405,7 @@ void draw() {
       }
     }
     
-    if(key==' ') for (int i=0;i<=LastMember;i++) L0[i] = Length(i);
+    if(key==' ') ResetMemberLength(16*m,LastMember);
     
     if(key=='r'){
       for(int i=0;i<8*m;i++) 
@@ -356,12 +451,13 @@ void draw() {
 
   // Start Drawing
   fill(0,255,0,255);
-  text("Iteration "+Iteration,PTextX,PTextY+DTextY*TextCount);TextCount++;
-  text("Load      "+Load,PTextX,PTextY+DTextY*TextCount);TextCount++;
-  text("dX        "+dX,PTextX,PTextY+DTextY*TextCount);TextCount++;  
-  text("dY        "+dY,PTextX,PTextY+DTextY*TextCount);TextCount++;
-  text("dZ        "+dZ,PTextX,PTextY+DTextY*TextCount);TextCount++;    
-  text("dY/dX     "+(dY/dX),PTextX,PTextY+DTextY*TextCount);TextCount++;  
+  text("Iteration    "+Iteration,PTextX,PTextY+DTextY*TextCount);TextCount++;
+  text("Scale Factor "+ScaleFactor,PTextX,PTextY+DTextY*TextCount);TextCount++;
+  text("Load         "+Load,PTextX,PTextY+DTextY*TextCount);TextCount++;
+  text("dX           "+dX,PTextX,PTextY+DTextY*TextCount);TextCount++;  
+  text("dY           "+dY,PTextX,PTextY+DTextY*TextCount);TextCount++;
+  text("dZ           "+dZ,PTextX,PTextY+DTextY*TextCount);TextCount++;    
+  text("dY/dX        "+(dY/dX),PTextX,PTextY+DTextY*TextCount);TextCount++;  
   translate(float(width)/2.0,float(height)/2.0);
   ortho(-float(width)/2.0,float(width)/2.0,-float(height)/2.0,float(height)/2.0,-width,width);
   rotateX(-xRot);
@@ -397,12 +493,12 @@ void draw() {
     }
       
     // Code to determine the first member and the first member connecting to the cable    
-    if (FirstMemberColoured&&ForceColoured&&!MemberColoured){
+    if (FirstMemberColoured&&!ForceColoured&&!MemberColoured){
       if (Member==0||Member==16*m) stroke(200,0,0,255);
       else stroke(255,255,255,255);
     }
     line(Coord[End[Member][0]][0],Coord[End[Member][0]][1],Coord[End[Member][0]][2],
-    Coord[End[Member][1]][0],Coord[End[Member][1]][1],Coord[End[Member][1]][2]);
+         Coord[End[Member][1]][0],Coord[End[Member][1]][1],Coord[End[Member][1]][2]);
   }
   // Finish Drawing
 }
@@ -413,3 +509,17 @@ float Length(int Member){
     LengthSq+= pow(Coord[End[Member][1]][xyz]-Coord[End[Member][0]][xyz],2);
   return sqrt(LengthSq);
 }
+
+void ResetNodeStiffness(int StartMember, int EndMember){
+  for(int Member=StartMember;Member<=EndMember;Member++)
+  {
+    Stiffness[End[Member][0]]+=EA[Member]/L0[Member];
+    Stiffness[End[Member][1]]+=EA[Member]/L0[Member];
+  }
+}
+
+void ResetMemberLength(int StartMember, int EndMember){
+  for(int Member=StartMember;Member<=EndMember;Member++) L0[Member] = Length(Member);
+  ResetNodeStiffness (StartMember, EndMember);
+}
+
