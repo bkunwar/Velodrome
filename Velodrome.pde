@@ -2,84 +2,71 @@
 //This program uses Alistair Day's Dynamic Relaxation technique
 //Simplified version of the Verlet algorithm
 //import processing.opengl.*;
-float[][] Coord;
-float[][] Force;
-float[][] Veloc;
-float[] Stiffness;
-float[] EA;
-float[] T0;
-float[] L0;
-float[] Delta;
-int [][] End;
-int[][] Fixed;
-int[] ForceColour;
-float[] ForceInitialColour;
-int m = 100;
-float ScaleFactor;
-int LastMember,LastNode;
-boolean Relaxable;
-boolean Pokable;
-boolean Releasable;
-boolean ForceColoured;
-boolean MemberColoured;
-boolean FirstMemberColoured;
-int PokeNode;
-int Iteration;
-float PokeForce;
-float RelaxationRate;
-float X0;
-float Y0;
-color Truss;
-color InnerRing;
-color OuterRing;
-color Cables;
+      
+int m = 30,
+    PokeNode = int(float(m)*(8+float(m)/2)+(float(m)+1)%2*float(m)/2), // Node closest to the centre
+    Iteration,
+    LastNode=m*(m+8)-1, // Counting from zero
+    LastMember=2*m*(m+9)-1; // Counting from zero
+
+int[] ForceColour = new int[3];
+      
+int [][] End = new int[LastMember+1][2], 
+         Fixed = new int[LastNode+1][3];
+          
+float[] Stiffness = new float[LastNode+1], 
+        EA = new float[LastMember+1], 
+        T0 = new float[LastMember+1], 
+        L0 = new float[LastMember+1], 
+        Delta = new float[3];
+
+float[][] Coord, 
+          Force, 
+          Velocity;        
+    
+boolean Relaxable = true, 
+        ForceColoured = false, 
+        MemberColoured = true, 
+        FirstMemberColoured = true;
+        
+float PokeForce = -10*m,
+      RelaxationRate = 0.98,
+      ScaleFactor = 10,      
+      xScale = 1.00,
+      yScale = 1.00,
+      zScale = 0.25,
+      X0,
+      Y0,
+      Theta,
+      InitialRotation = PI/4*(5+1/float(m)),        // Rotate by Theta/2 and then 270 degrees 5*PI/4+PI/(4*m)
+      InnerRingScale = 1-PI*pow(3,0.5)/4/float(m);  // Renders the internal truss members the same length as the external members
+
+color Truss      = color(200,0,0,255),
+      InnerRing  = color(0,200,0,255),
+      OuterRing  = color(0,0,200,255),
+      Cables     = color(255,255,255,255);
+
+float NetEA = 1,
+      NetT0 = 0, //-0.5*NetEA*a/float(m);
+      EdgeEA = pow(10,6)*NetEA,
+      EdgeT0 = 0;//-1.5*EdgeEA*a/float(m);
 
 void setup()
-{
-  //size(1200,750,OPENGL);
+{  
+  // size(1200,750,OPENGL);
+  // size(int(0.9*float(screen.width)),int(0.9*float(screen.height)),P3D);
   size(1200,750,P3D);
-  //size(int(0.9*float(screen.width)),int(0.9*float(screen.height)),P3D);
   smooth();
-  textFont(createFont("Arial",24));
+  textFont(createFont("Arial",20));
   frameRate(30);
   textMode(SCREEN);
-  Relaxable           = true;
-  Pokable             = true;
-  Releasable          = true;  
-  ForceColoured       = false;
-  MemberColoured      = true;
-  FirstMemberColoured = true;
-  Truss      = color(200,0,0,255);
-  InnerRing  = color(0,200,0,255);
-  OuterRing  = color(0,0,200,255);
-  Cables     = color(255,255,255,255);
-  ForceInitialColour = new float[3];
-  float[] ForceInitialColour = {255,0,0};
-  ForceColour = new int[3];  
-  LastNode=m*(m+8)-1; // Counting from zero
-  PokeNode = int(float(m)*(8+float(m)/2)+(float(m)+1)%2*float(m)/2); // Node closest to the centre
-  PokeForce = -100;  
-  RelaxationRate = 0.98;
-  Coord = new float[LastNode+1][3];
-  Force = new float[LastNode+1][3];
-  Veloc = new float[LastNode+1][3];
-  Stiffness = new float[LastNode+1];
-  Fixed = new int[LastNode+1][3];
-  Delta = new float[3];
-  LastMember=2*m*(m+9)-1; // Counting from zero
-  EA = new float[LastMember+1];
-  L0 = new float[LastMember+1];
-  T0 = new float[LastMember+1];
-  End = new int[LastMember+1][2];
-  ScaleFactor=10;
-  float a=float(height)/(1.5*2.0*ScaleFactor);
-  float InitialRotation = PI/4*(5+1/float(m));//5*PI/4+PI/(4*m);//+6*PI/4;//Rotate by Theta/2 and then 270 degrees
-  float HeightScale = 0.25;
-  float xScale = 1.0;
-  float yScale = 1.0;
-  float InnerRingScale = 1-PI*pow(3,0.5)/4/float(m);
-  // println(InnerRingScale);
-  float Theta;
+  
+  Coord = new float[LastNode+1][3]; 
+  Force = new float[LastNode+1][3]; 
+  Velocity = new float[LastNode+1][3];   
+
+  float a = float(height)/(1.5*2.0*ScaleFactor);
+
   {
     int Node=-1;
     // Internal Ring
@@ -89,7 +76,7 @@ void setup()
       Theta = 2*PI*i/(4*m)+InitialRotation;
       Coord[Node][0]=InnerRingScale*a*cos(Theta)/float(m/m)*xScale;//Position in x axis
       Coord[Node][1]=InnerRingScale*a*sin(Theta)/float(m/m)*yScale;//Position in y axis
-      Coord[Node][2]=HeightScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
+      Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
       if ((i+1)%1==0) for (int xyz=0;xyz<=2;xyz++) Fixed[Node][xyz]=1;
     }    
     // External Ring
@@ -99,7 +86,7 @@ void setup()
       Theta = 2*PI*i/(4*m)+PI/(4*m)+InitialRotation;
       Coord[Node][0]=a*cos(Theta)/float(m/m)*xScale;//Position in x axis
       Coord[Node][1]=a*sin(Theta)/float(m/m)*yScale;//Position in y axis
-      Coord[Node][2]=HeightScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
+      Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
       if ((i+1)%1==0) for (int xyz=0;xyz<=2;xyz++) Fixed[Node][xyz]=1;
     }
     
@@ -111,18 +98,13 @@ void setup()
           Node++;
           Coord[Node][0]= a*(i-float(m-1)/2)/float(m); //Position in x axis
           Coord[Node][1]= a*(j-float(m-1)/2)/float(m);//(a*j)/m-2*m; //Position in y axis
-          Coord[Node][2]=HeightScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
+          Coord[Node][2]=zScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
 //          println(Node+" has " + Coord[Node][0] + ", "+ Coord[Node][1]);
       }
     }
     println("Check on last node number: Should be " + Node + " and is "+ LastNode);
   }
   {
-    float NetEA = 1;
-    float NetT0 = -0.5*NetEA*a/float(m);
-    float EdgeEA = pow(10,3)*NetEA;
-    float EdgeT0 = -1.5*EdgeEA*a/float(m);
-
     int Member = -1;
 
     // Internal Ring
@@ -257,136 +239,113 @@ void setup()
   
   X0 = Coord[int(5.5*float(m))-1][0]-Coord[int(7.5*float(m))-1][0];
   Y0 = Coord[int(6.5*float(m))-1][1]-Coord[int(4.5*float(m))-1][1];
-  println(X0+","+Y0);
+  println(X0 + "," + Y0);
 }
 
-float PTextX=50.0;
-float PTextY=400.0;
-float TextYInterval=30.0;
-float TextX=PTextX;
-float TextY=PTextY;
-int TextCount;
-float OriginalTextY=400.0;
-float TextRegion=100.0;
-int OverText=0;
-float zRot=0.0,xRot=0.0;
-float MyMouseX=0.0,MyMouseXpressed=0.0,MyMouseY=0.0,MyMouseYpressed=0.0;
-float xTrans=0.0,yTrans=0.0;
-float theta=0.0;
-float MaxForce;
-float ForceRatio;
-float dX;
-float dY;
-boolean Fast = false;
-boolean Released = false;
+float PTextX = 50.0,
+      PTextY = 400.0,
+      zRot = 0.0,
+      xRot = 0.0,
+      MyMouseX = 0.0,
+      MyMouseY = 0.0,
+      MyMouseXpressed = 0.0,
+      MyMouseYpressed = 0.0,
+      xTrans = 0.0,
+      yTrans = 0.0,
+      MaxForce,
+      ForceRatio,
+      dX,
+      dY;
+      
+boolean Fast = false,
+        Released = false;
 
-void draw()
-{
-  TextCount=1;
+void draw() {
+  int TextCount = 0;
   background(0,0,0);
-  if(mousePressed)
-  {
+  if(mousePressed) {
     MyMouseXpressed=mouseX;
     MyMouseYpressed=mouseY;
-    if(OverText==1)
-    {
-      TextY+=MyMouseYpressed-MyMouseY;
-      ScaleFactor*=1.0-0.01*(MyMouseYpressed-MyMouseY);
-    }
-    else
-    {
-      if(mouseButton==LEFT)
-      {
-        zRot+=(MyMouseXpressed-MyMouseX)/300.0;
-        xRot+=(MyMouseYpressed-MyMouseY)/300.0;
-      }
-      else
-      {
-        xTrans+=(MyMouseXpressed-MyMouseX);
-        yTrans+=(MyMouseYpressed-MyMouseY);
-      }
-      TextY=OriginalTextY;
+    if(mouseButton==LEFT) {
+      zRot+=(MyMouseXpressed-MyMouseX)/300.0;
+      xRot+=(MyMouseYpressed-MyMouseY)/300.0;
+    } else {
+      xTrans+=(MyMouseXpressed-MyMouseX);
+      yTrans+=(MyMouseYpressed-MyMouseY);
     }
     MyMouseX=MyMouseXpressed;
     MyMouseY=MyMouseYpressed;
-  }
-  else
-  {
+  } else {
     MyMouseX=mouseX;
     MyMouseY=mouseY;
     TextY=OriginalTextY;
-    if((MyMouseX-TextX)*(MyMouseX-TextX)+(MyMouseY-TextY)*(MyMouseY-TextY)<TextRegion*TextRegion)
-    {
-      OverText=1;
-      fill(200,0,0,255);
-    }
-    else
-    {
-      OverText=0;
-      fill(255,255,255,255);
-    }
   }
+  
   for(int Node=0;Node<=LastNode;Node++)
-  {
     for(int xyz=0;xyz<=2;xyz++)Force[Node][xyz]=0.0;
-  }
 
   if (keyPressed){
+    // Increase or decrease frame rate
     if(key=='f') frameRate (30);
-    if(key=='g') frameRate (5);
-    if(key=='u') for(int i=8*m;i<=LastNode;i++) Force[i][2]+=PokeForce/pow(m,2);
-    if(key=='h') for(int i=8*m;i<=LastNode;i++) Force[i][0]+=PokeForce/pow(m,2);
+    if(key=='d') frameRate (5);
+    
+    // Increase or decrease poke force
     if(key=='a') PokeForce*=1.1;
-    if(key=='s') PokeForce=PokeForce/1.1;
+    if(key=='s') PokeForce/=1.1;
+    
+    // UDL in x, y or z direction 
+
+    if(key=='g') for(int i=8*m;i<=LastNode;i++) Force[i][0]+=PokeForce/pow(m,2);
+    if(key=='j') for(int i=8*m;i<=LastNode;i++) Force[i][0]-=PokeForce/pow(m,2);
+    if(key=='y') for(int i=8*m;i<=LastNode;i++) Force[i][1]+=PokeForce/pow(m,2);
+    if(key=='h') for(int i=8*m;i<=LastNode;i++) Force[i][1]-=PokeForce/pow(m,2);
+    if(key=='o') for(int i=8*m;i<=LastNode;i++) Force[i][2]+=PokeForce/pow(m,2);
+    if(key=='k') for(int i=8*m;i<=LastNode;i++) Force[i][2]-=PokeForce/pow(m,2);
+    
+    // Zoom in and out
+    if(key=='z') ScaleFactor*=1.1;
+    if(key=='x') ScaleFactor/=1.1;
+
+    // Reset program
     if(key=='n') setup();
-    if(key=='p'){
+    
+    // Poke in
+    if(key=='p'||key=='l'){
+      int r = 1;
+      if (key=='l') r = -1;       
       if (m%2==0) {
-        Force[PokeNode][2]+=PokeForce/4;
-        Force[PokeNode-1][2]+=PokeForce/4;
-        Force[PokeNode-m][2]+=PokeForce/4;
-        Force[PokeNode-m-1][2]+=PokeForce/4;
-//        println(PokeNode+", "+(PokeNode-1)+", "+(PokeNode-m)+", "+(PokeNode-m-1)+" excited");
+        Force[PokeNode][2]+=r*PokeForce/4;
+        Force[PokeNode-1][2]+=r*PokeForce/4;
+        Force[PokeNode-m][2]+=r*PokeForce/4;
+        Force[PokeNode-m-1][2]+=r*PokeForce/4;
       } else {
-        Force[PokeNode][2]+=PokeForce;
-//        println(PokeNode+" excited");
+        Force[PokeNode][2]+=r*PokeForce;
       }
     }
-  }
-  
-  if (Releasable&&!Released&&keyPressed){
     if(key=='r'){
-      for(int i=0;i<8*m;i++) for (int xyz=0;xyz<=2;xyz++) Fixed[i][xyz]=0; // Release all
-      for(int i=0;i<8*m;i++) for (int xyz=2;xyz<=2;xyz++) Fixed[i][xyz]=1; // Fix all in y and z direction   
-      //for (int xyz=0;xyz<=1;xyz++) Fixed[int(5.5*float(m))-1][xyz]=1;
-      //if (m%2==1) for (int xyz=0;xyz<=1;xyz++) Fixed[int(5.5*float(m))][xyz]=1;
-      Released = true;
-    }
+      for(int i=0;i<8*m;i++) 
+        for (int xyz=0;xyz<=2;xyz++) Fixed[i][xyz]=0; // Release all
+      for(int i=0;i<8*m;i++) 
+        for (int xyz=2;xyz<=2;xyz++) Fixed[i][xyz]=1; // Fix all in y and z direction
+    }    
   }
   
-  if (Released){
-    float X = Coord[int(5.5*float(m))-1][0]-Coord[int(7.5*float(m))-1][0];
-    float Y = Coord[int(6.5*float(m))-1][1]-Coord[int(4.5*float(m))-1][1];
-    dX = X0 - X;
-    dY = Y0 - Y;
-  }
-  
-  // Force[][2]+=0*sin(Theta);
-  // Theta+=PI/4;
+  dX = X0 - (Coord[int(5.5*float(m))-1][0]-Coord[int(7.5*float(m))-1][0]);
+  dY = Y0 - (Coord[int(6.5*float(m))-1][1]-Coord[int(4.5*float(m))-1][1]);
 
   // Start Relaxing
   if (Relaxable){
     for(int Member=0;Member<=LastMember;Member++)
     {
-      float LengthSq=0.0;
-      //Tension = T = T0 + (EA/L0)*(L - L0)
-      //TensionCoefficient = T/L = EA/L0 + (T0 - EA)/L
-      float TensionCoefficient=EA[Member]/L0[Member]+(T0[Member]-EA[Member])/Length(Member);
-//      if(T0_minus_EA[Member]!=0.0)TensionCoefficient+=T0_minus_EA[Member]/sqrt(LengthSq);
+      // Tension            = T   = T0 + (EA/L0)*(L - L0)
+      // TensionCoefficient = T/L = EA/L0 + (T0 - EA)/L
+      float TensionCoefficient = EA[Member]/L0[Member]+(T0[Member]-EA[Member])/Length(Member);
       for(int xyz=0;xyz<=2;xyz++)
       {
-        float ForceComponent=TensionCoefficient*(Coord[End[Member][1]][xyz]-Coord[End[Member][0]][xyz]);
-        Force[End[Member][0]][xyz]+=ForceComponent;
-        Force[End[Member][1]][xyz]-=ForceComponent;
+        // ForceComponent = T/L * Delta[xyz]
+        float ForceComponent = TensionCoefficient*(Coord[End[Member][1]][xyz]-Coord[End[Member][0]][xyz]);
+        Force[End[Member][0]][xyz] += ForceComponent;
+        Force[End[Member][1]][xyz] -= ForceComponent;
       }
     }
     
@@ -396,8 +355,8 @@ void draw()
       {
         if(Fixed[Node][xyz]==0)
         {
-        Veloc[Node][xyz]=RelaxationRate*Veloc[Node][xyz]+Force[Node][xyz]/Stiffness[Node];
-        Coord[Node][xyz]+=Veloc[Node][xyz];
+        Velocity[Node][xyz]=RelaxationRate*Velocity[Node][xyz]+Force[Node][xyz]/Stiffness[Node];
+        Coord[Node][xyz]+=Velocity[Node][xyz];
         }
       }
     }
@@ -408,12 +367,10 @@ void draw()
   Iteration++;
 
   // Start Drawing
-  text("Zoom",TextX,TextY);
-  fill(255,255,255,255);
   text("Iteration "+Iteration,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
-  text("Poke Force "+PokeForce,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
-  text("dX "+dX,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
-  text("dY "+dY,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
+  text("PokeForce "+PokeForce,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
+  text("dX        "+dX,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
+  text("dY        "+dY,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
   text("dY/dX "+(dY/dX),PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
   translate(float(width)/2.0,float(height)/2.0);
   ortho(-float(width)/2.0,float(width)/2.0,-float(height)/2.0,float(height)/2.0,-width,width);
@@ -432,10 +389,10 @@ void draw()
        float ThisForceSquared=0.0;
        for(int xyz=0;xyz<=2;xyz++){
          ThisForceSquared += pow(Force[End[Member][0]][xyz]+Force[End[Member][1]][xyz],2);
-         ForceColour[xyz] = 255-255*int(pow(pow(Force[End[Member][0]][xyz]+Force[End[Member][1]][xyz],2),0.5)/MaxForce);
+         ForceColour[xyz] = int(255*(1-abs(Force[End[Member][0]][xyz]+Force[End[Member][1]][xyz])/MaxForce));
        }
       
-       float ThisForce = pow(ThisForceSquared,0.5);
+       float ThisForce = pow(ThisForceSquared, 0.5);
 
        if (ThisForce>MaxForce) MaxForce=ThisForce;
        stroke(ForceColour[0],ForceColour[1],ForceColour[2],255);
