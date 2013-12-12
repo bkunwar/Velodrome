@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------------------------------
-// ELLIPTICAL HYPERBOLIC PARABOLOID ANALYSIS SOFTWARE
+// ELLIPTICAL HYPERBOLIC PARABOLOID ANALYSIS PROGRAM
 // ----------------------------------------------------------------------------------------------------
 // Uses Alistair Day's Dynamic Relaxation technique, a simplified version of the Verlet algorithm
 // Adapted from Chris William's SimpleDynamicRelaxation program
@@ -10,12 +10,12 @@
 
 // Primary variables
 int 
-m = 30, // 50
+m = 20, // 50
 dm = 5, 
 Variable        = 2, // 1 = m varies, 2 = CableT0 varies, 3 = TrussThickness varies
-ThisTest        = 0,
+ThisTest        = 0, 
 WriteInterval   = 1000, 
-DisplayInterval = 1,//WriteInterval, 
+DisplayInterval = WriteInterval, 
 ReleaseTrigger  = 0, 
 ClosingTrigger   = 10000;
 
@@ -26,21 +26,35 @@ o,
 Iteration, 
 CentralNode, 
 LastNode, 
-LastMember;
+LastMember, 
+LastCable, 
+LastCableLink;
 float
-WidestInnerRadius,
-MaxTrussT, 
-MaxTrussC, 
-MaxCableT, 
-MaxCableC, 
-MinTrussT, 
-MinTrussC, 
-MinCableT, 
-MinCableC, 
-dCableT, 
-dCableC, 
-dTrussT, 
-dTrussC, 
+WidestInnerRadius, 
+MaxTrussTi, 
+MaxTrussCi, 
+MaxCableTi, 
+MaxCableCi, 
+MinTrussTi, 
+MinTrussCi, 
+MinCableTi, 
+MinCableCi, 
+MaxTrussTf, 
+MaxTrussCf, 
+MaxCableTf, 
+MaxCableCf, 
+MinTrussTf, 
+MinTrussCf, 
+MinCableTf, 
+MinCableCf, 
+dCableTi, 
+dCableCi, 
+dTrussTi, 
+dTrussCi, 
+dCableTf, 
+dCableCf, 
+dTrussTf, 
+dTrussCf, 
 Area, 
 Circumference, 
 NetScale, 
@@ -74,11 +88,11 @@ InnerTrussLength = 2500.0;
 // Member attributes in N/mm2
 float
 TrussE = 200 * pow(10, 3), 
-CableE = 200 * pow(10, 3),
-CableST = 500,
-CableSC = 0,
-TrussST = 500,
-TrussSC = 350;
+CableE = 200 * pow(10, 3), 
+CableTensileStrength = 500, 
+CableCompressiveStrength = 0, 
+TrussTensileStrength = 500, 
+TrussCompressiveStrength = 350;
 
 // The following are defined in the "setup" subroutine
 float
@@ -86,8 +100,8 @@ TrussA,
 CableA, 
 CableEA, 
 TrussEA, 
-CableT0, 
-TrussT0,
+CableTi, 
+TrussTi, 
 Load, 
 dP;
 
@@ -108,21 +122,27 @@ EquilibriumVelocity = 0.1;
 char Colour = 'F';  // A=FirstMember, F=MemberForce
 
 // Boolean settings
+
 boolean 
 Relaxable           = true,
-FileOutputEnabled   = false,
-TakeScreenshot      = true,
-ShowSupports        = true,
-Failure             = false,
-Quit                = false,
-UnstrainOnRelease   = false, 
-EdgeTangentCable    = false, 
+FileOutputEnabled   = false, 
+TakeScreenshot      = true, 
+ShowSupports        = true, 
+InitialGeometry     = true, 
+SlidableCables      = false, 
+FailureInitial      = false, 
+FailureFinal        = false, 
+Quit                = false, 
+SpecialCase         = false, 
 CableCompressible   = false, 
 OutputComplete      = false, 
 SummaryInitialized  = false, 
 NewCycle            = false, 
 EquilibriumReached  = false, 
-Released            = false; 
+Released            = false,
+PLon                = false;
+boolean[]
+UDLon = {false, false, false};
 
 // Output file settings
 String SummaryFileName = "BAT", 
@@ -139,7 +159,7 @@ Output;
 
 // Colour settings
 int 
-ColourContrast = 255, 
+ColourContrast = 230, 
 TrussColour = 255, 
 CableColour = 0;
 
@@ -167,7 +187,8 @@ xRot;
 float []
 K; // Node Stiffness
 float [][]
-X, // Coordinate
+Xi, // Initial coordinate
+Xf, // Final coordinate
 F, // Force
 V; // Velocity
 
@@ -177,44 +198,22 @@ Fix;
 // Member attribute matrices
 float []
 EA, // Young's Modulus times the Area
-T0, // Pretension
-L0, // Original Length
-T;  // Tension
+Ti, // Pretension
+Tf, // Final Tension
+Li, // Initial Length
+Lf; // Final Length
 int [][] 
 End; // Nodes corresponding to the two ends of a given members
+
+// Continuous cable properties
+int [][][]
+CL; // Members that make up a continuous cable in each direction
 
 // ----------------------------------------------------------------------------------------------------
 // SETUP
 // ----------------------------------------------------------------------------------------------------
 
 void setup() {  
-  ResetVariables();
-
-  // Amount of prestress in N
-  dP = 0.0002 * CableEA; // 0.2% = 0.002
-
-  if (Variable != 2 || !FileOutputEnabled) CableT0 = dP * 10;
-  TrussT0 = 0;
-  Load    = CableT0 * 1000;
-
-  ConstructNodes();
-  ConstructMembers();
-
-  ResetNodeStiffness(0, LastMember);
-
-  CalculateTotalLength();
-  ResetPointers();
-
-  InitiateSummaryOutput();
-  InitiateOutput();
-}
-
-// ----------------------------------------------------------------------------------------------------
-// CONSTRUCTORS
-// ----------------------------------------------------------------------------------------------------
-
-// Reset all the variable dependent statics
-void ResetVariables() {
   // size(1200,750,OPENGL);
   // size(int(0.9*float(screen.width)),int(0.9*float(screen.height)),P3D);
   size(1200, 750, P3D);
@@ -226,12 +225,22 @@ void ResetVariables() {
 
   // m over 2 rounded down which gives the number of extra cables on each side
   n = int(m / 2);
-  // m minus 1 over 2 rounded down
+  // m minus 1 over 2 rounded down which gives the number of extra members on each side
   o = int((m - 1) / 2);
   // Counting from zero
-  LastNode = m * (m + 8) + (4 * n) * (m - n - 1) - 1;
+  LastNode = m * (m + 8) - 1;
   // Counting from zero
-  LastMember = 2 * m * (m + 9) + 4 * o * (m - o) + (4 * n) * (m - n - 1) - 1;
+  LastMember = 2 * m * (m + 9) - 1;
+
+  if (SpecialCase) {
+    LastNode   += (4 * n) * (m - n - 1);
+    LastMember += 4 * o * (m - o) + (4 * n) * (m - n - 1);
+  }
+
+  // Counting from zero, total number of cables in each direction
+  LastCable = m + 2 * o - 1;
+  // Counting from zero, the maximum number of members per cable
+  LastCableLink = LastCable + 1;
 
   // Rotate by Theta/2 and then 270 degrees 5*PI/4+PI/(4*m)
   InitialRotation = PI / 4 * (5 + 1 / float(m));
@@ -240,7 +249,8 @@ void ResetVariables() {
   // Determine the pointer for the central node
   CentralNode = int(float(m) * (8 + float(m) / 2) + (float(m) + 1) % 2 * float(m) / 2);
 
-  X = new float[LastNode + 1][3];
+  Xi = new float[LastNode + 1][3];
+  Xf = new float[LastNode + 1][3];   
   F = new float[LastNode + 1][3];
   V = new float[LastNode + 1][3];
   K = new float[LastNode + 1];
@@ -248,9 +258,12 @@ void ResetVariables() {
   Fix = new int[LastNode + 1][3];  
 
   EA = new float[LastMember + 1];
-  T0 = new float[LastMember + 1];
-  L0 = new float[LastMember + 1];
-  T = new float[LastMember + 1];
+  Ti = new float[LastMember + 1];
+  Tf = new float[LastMember + 1];
+  Li = new float[LastMember + 1];
+  Lf = new float[LastMember + 1];
+
+  CL = new int[LastCable + 1][LastCableLink + 1][2];
 
   // in mm2
   TrussA = PI*(pow(TrussRadius, 2)-pow(TrussRadius-TrussThickness, 2));
@@ -273,8 +286,43 @@ void ResetVariables() {
   yTrans = 0.0;  
 
   Iteration = 0;
+
+  // Increment of prestress in N
+  dP = 0.0002 * CableEA; // 0.2% = 0.002
+
+  // This is the final stress distribution that we want in the cable
+  if (Variable != 2 || !FileOutputEnabled) 
+    CableTi = dP * 10;
+
+  // For the initial stress distribution, we know that the truss is unstressed
+  TrussTi = 0;
+
+  Load = CableTi * 20;
+
+  ConstructNodes();
+
+  // We want to start from the final geometry and work our way backwards
+  for (int Node = 0; Node <= LastNode; Node++) {
+    arrayCopy(Xi[Node], Xf[Node]);
+  }
+
+  ConstructMembers();
+  ConstructCableLinks();
+
+  ResetNodeStiffness();
+
+  CalculateTotalLength();
+  ResetPointers();
+
   Released = false;
+
+  InitiateSummaryOutput();
+  InitiateOutput();
 }
+
+// ----------------------------------------------------------------------------------------------------
+// CONSTRUCTORS
+// ----------------------------------------------------------------------------------------------------
 
 // Construct the nodes of the structure
 void ConstructNodes() {
@@ -284,8 +332,8 @@ void ConstructNodes() {
   for (int i = 0; i < 4 * m; i++) {
     Node++;
     Theta = 2 * PI * i / (4 * m) + InitialRotation;
-    X[Node][0] = xScale * WidestInnerRadius * cos(Theta); //Position in x axis
-    X[Node][1] = yScale * WidestInnerRadius * sin(Theta); //Position in y axis
+    Xi[Node][0] = xScale * WidestInnerRadius * cos(Theta); //Position in x axis
+    Xi[Node][1] = yScale * WidestInnerRadius * sin(Theta); //Position in y axis
     if ((i + 1) % 1 == 0) for (int xyz = 0; xyz <= 2; xyz++) Fix[Node][xyz] = 1;
   }
 
@@ -293,8 +341,8 @@ void ConstructNodes() {
   for (int i = 0; i < 4 * m; i++) {
     Node++;
     Theta = 2 * PI * i / (4 * m) + PI / (4 * m) + InitialRotation;
-    X[Node][0] = xScale * OuterRingScale * WidestInnerRadius * cos(Theta); //Position in x axis
-    X[Node][1] = yScale * OuterRingScale * WidestInnerRadius * sin(Theta); //Position in y axis
+    Xi[Node][0] = xScale * OuterRingScale * WidestInnerRadius * cos(Theta); //Position in x axis
+    Xi[Node][1] = yScale * OuterRingScale * WidestInnerRadius * sin(Theta); //Position in y axis
     if ((i + 1) % 1 == 0) for (int xyz = 0; xyz <= 2; xyz++) Fix[Node][xyz] = 1;
   }
 
@@ -302,20 +350,20 @@ void ConstructNodes() {
   for (int j = 0; j < m; j++) {
     for (int i = 0; i < m; i++) {
       Node++;
-      X[Node][0] = X[i][0];     //Position in x axis
-      X[Node][1] = X[m + j][1]; //Position in y axis
+      Xi[Node][0] = Xi[i][0];     //Position in x axis
+      Xi[Node][1] = Xi[m + j][1]; //Position in y axis
     }
   }
 
   // Construct the nodes in the Periphery Cable Net
-  for (int k = 0; k < 4; k++) {
+  for (int k = 0; k < 4 && SpecialCase; k++) {
     for (int j = 1; j <= n; j++) {
       for (int i = j; i < m - j; i++) {
         Node++;
         int xNode = (i + m * k) * ((k + 1) % 2) + (j - 1 + m * k) * (k % 2);
         int yNode = (i + m * k) * (k % 2) + (j - 1 + m * k) * ((k + 1) % 2);
-        X[Node][0] = X[xNode][0]; //Position in x axis
-        X[Node][1] = X[yNode][1]; //Position in y axis
+        Xi[Node][0] = Xi[xNode][0]; //Position in x axis
+        Xi[Node][1] = Xi[yNode][1]; //Position in y axis
       }
     }
   }
@@ -325,7 +373,7 @@ void ConstructNodes() {
 
   // Construct the nodes in the z-axis
   for (Node = 0; Node <= LastNode; Node++) {
-    X[Node][2] = zScale * (pow(X[Node][0]/pow(xScale, 1), 2) - pow(X[Node][1]/pow(yScale, 1), 2)) / WidestInnerRadius; //Position in z axis
+    Xi[Node][2] = zScale * (pow(Xi[Node][0]/pow(xScale, 1), 2) - pow(Xi[Node][1]/pow(yScale, 1), 2)) / WidestInnerRadius; //Position in z axis
   }
 }
 
@@ -365,7 +413,7 @@ void ConstructMembers() {
 
 
   // Edge Tangent Cables
-  if (EdgeTangentCable) {
+  if (SpecialCase) {
     for (int k = 0; k < 4; k++) {
       int ThisSide = m * (m + 8) + k * n * (m - n - 1) - 1;
       for (int j = 1; j <= o; j++) {
@@ -389,14 +437,14 @@ void ConstructMembers() {
       if (j == 0) {
         //Top
         Member++;
-        if (i > 0 && i < m - 1 && EdgeTangentCable) ThisSide += 0;
+        if (i > 0 && i < m - 1 && SpecialCase) ThisSide += 0;
         else ThisSide = 0; //Edge
         End[Member][0] = ThisSide + i; //Edge            
         End[Member][1] = 8 * m + (m * j) + i; //Middle
       }
       if (j == (m - 1)) {
         //Bottom         
-        if (i > 0 && i < m - 1 && EdgeTangentCable) ThisSide += 2 * n * (m - n - 1); // Edge
+        if (i > 0 && i < m - 1 && SpecialCase) ThisSide += 2 * n * (m - n - 1); // Edge
         else ThisSide = 2 * m; // Corner
         Member++;
         End[Member][0] = ThisSide + m - 1 - i;
@@ -405,7 +453,7 @@ void ConstructMembers() {
       if (i == 0) {
         //Left
         Member++;
-        if (j > 0 && j < m - 1 && EdgeTangentCable) ThisSide += 3 * n * (m - n - 1);
+        if (j > 0 && j < m - 1 && SpecialCase) ThisSide += 3 * n * (m - n - 1);
         else ThisSide = 3 * m; //Edge   
         End[Member][0] = ThisSide + m - 1 - j; //Edge                 
         End[Member][1] = 8 * m + (m * j); //Middle
@@ -413,7 +461,7 @@ void ConstructMembers() {
       if (i == (m - 1)) {
         //Right
         Member++;
-        if (j > 0 && j < m - 1 && EdgeTangentCable) ThisSide += n * (m - n - 1);
+        if (j > 0 && j < m - 1 && SpecialCase) ThisSide += n * (m - n - 1);
         else ThisSide = m;
         End[Member][0] = ThisSide + j; //Edge                               
         End[Member][1] = 8 * m + m * (j + 1) - 1; //Middle
@@ -421,26 +469,26 @@ void ConstructMembers() {
     }
   }
 
-  if (EdgeTangentCable) {
-    for (int k = 0; k < 4; k++) {
-      int ThisSide = m * (m + 8) + k * n * (m - n - 1) - 1;
-      for (int j = 1; j <= o; j++) {
-        for (int i = j; i < m - j; i++) {
-          ThisSide++;
-          if (i == j || i == m - j - 1) {
-            Member++;
-            End[Member][0] = m * k + i;
-            End[Member][1] = ThisSide;
-          } 
-          else {
-            Member++;
-            End[Member][0] = ThisSide;
-            End[Member][1] = ThisSide + (m - 1) - j * 2;
-          }
+
+  for (int k = 0; k < 4 && SpecialCase; k++) {
+    int ThisSide = m * (m + 8) + k * n * (m - n - 1) - 1;
+    for (int j = 1; j <= o; j++) {
+      for (int i = j; i < m - j; i++) {
+        ThisSide++;
+        if (i == j || i == m - j - 1) {
+          Member++;
+          End[Member][0] = m * k + i;
+          End[Member][1] = ThisSide;
+        } 
+        else {
+          Member++;
+          End[Member][0] = ThisSide;
+          End[Member][1] = ThisSide + (m - 1) - j * 2;
         }
       }
     }
   }
+
 
   // Inner Cable Net
   for (int j = 0; j < m; j++) {
@@ -461,18 +509,78 @@ void ConstructMembers() {
   println("Check on last member number: Should be " + Member + " and is " + LastMember);
   LastMember = Member;
 
+  CalculateLi();
+
   for (Member = 0; Member <= LastMember; Member++) {
     if (Member < 16 * m) {
-      L0[Member] = L(Member);
+      // For the truss members, Tf and Li are unknown as we  do not know the unstrained geometry or the final stress distribution in the members
+      // However, we do know Ti and Lf, as the initial stress distribution is defined and that the final geometry is the specified geometry
+
+      // Li[Member] = ?
+      // Tf[Member] = ? 
+
+      Lf[Member] = Li[Member];
+      Ti[Member] = TrussTi;
+
       EA[Member] = TrussEA;
-      T0[Member] = TrussT0;
     } 
     else {
-      if (UnstrainOnRelease) L0[Member] = 1;
-      else L0[Member] = L(Member);
+      // For the cable members as well, Tf and Li are unknown as we  do not know the unstrained geometry or the final stress distribution in the members
+      // However, we do know Ti and Lf, as the initial stress distribution is defined and that the final geometry is the specified geometry   
+
+      // Li[Member] = ?
+      // Tf[Member] = ? 
+
+      Lf[Member] = Li[Member];
+      Ti[Member] = CableTi;
+
       EA[Member] = CableEA;
-      T0[Member] = CableT0;
     }
   }
 }
+
+void ConstructCableLinks() {
+  float MinX = 0;
+  float MaxX = 0;
+
+  for (int xy = 0; xy <= 1; xy++) {
+    if (xy == 0) {
+      MinX = Xf[int(7.5 * float(m)) - 1][0];
+      MaxX = Xf[int(5.5 * float(m)) - 1][0];
+    } 
+    else if (xy == 1) {
+      MinX = Xf[int(4.5 * float(m)) - 1][1];
+      MaxX = Xf[int(6.5 * float(m)) - 1][1];
+    }
+
+    float ThisX = MinX;
+
+    for (int Cable = 0; Cable <= LastCable; Cable++) {
+
+      float ThatX = MaxX;
+
+      // Find the first row
+      for (int Node = 8 * m; Node <= LastNode; Node++) {
+        if (Xf[Node][xy] > ThisX && Xf[Node][xy] < ThatX) ThatX = Xf[Node][xy];
+      }
+
+      ThisX = ThatX;
+
+      int CableLink = 0;
+      for (int Member = 16 * m; Member <= LastMember; Member++) {
+        float ThisEndX = Xf[End[Member][0]][xy];
+        float ThatEndX = Xf[End[Member][1]][xy];
+        float Tolerance = Li[Member] * 0.001; // 0.1% of the length
+        float UpperLimit = ThisX + Tolerance;
+        float LowerLimit = ThisX - Tolerance;
+        // println(Member + ": UpperLimit " + UpperLimit + " ThisEndX " + ThisEndX + " ThatEndX " + ThatEndX + " LowerLimit " + LowerLimit);        
+        if (UpperLimit > ThisEndX && LowerLimit < ThisEndX && UpperLimit > ThatEndX && LowerLimit < ThatEndX) {
+          // println(Member+": "+Cable+" "+CableLink+" "+xy+" | "+LastCableLink);
+          CL[Cable][CableLink][xy] = Member;
+          CableLink++;
+        }
+      }
+    }
+  }
+}  
 
