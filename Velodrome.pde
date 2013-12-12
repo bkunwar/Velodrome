@@ -6,29 +6,31 @@ float[][] Coord;
 float[][] Force;
 float[][] Veloc;
 float[] Stiffness;
-float[] EA_over_L0;
-float[] T0_minus_EA;
+float[] EA;
+float[] T0;
+float[] L0;
 float[] Delta;
 int [][] End;
-int[] Fixed;
+int[][] Fixed;
 int[] ForceColour;
-int[] ForceInitialColour;
+float[] ForceInitialColour;
 int m;
 float ScaleFactor;
 int LastMember,LastNode;
 boolean Relaxable;
 boolean Pokable;
+boolean Releasable;
 boolean ForceColoured;
 boolean MemberColoured;
 boolean FirstMemberColoured;
 int PokeNode;
 int Iteration;
 float PokeForce;
-float Cables;
 float RelaxationRate;
 color Truss;
 color InnerRing;
 color OuterRing;
+color Cables;
 
 void setup()
 {
@@ -41,30 +43,32 @@ void setup()
   textMode(SCREEN);
   Relaxable           = true;
   Pokable             = true;
-  ForceColoured       = true;
+  Releasable          = true;  
+  ForceColoured       = false;
   MemberColoured      = true;
   FirstMemberColoured = true;
   Truss      = color(200,0,0,255);
   InnerRing  = color(0,200,0,255);
   OuterRing  = color(0,0,200,255);
-  Cables     = 255;
-  ForceInitialColour = new int[3];
-  int[] ForceInitialColour = {255,0,0};
+  Cables     = color(255,255,255,255);
+  ForceInitialColour = new float[3];
+  float[] ForceInitialColour = {255,0,0};
   ForceColour = new int[3];  
-  m=100;//Must be even;
+  m=5;//Must be even;
   LastNode=m*(m+8)-1; // Counting from zero
   PokeNode = int(float(m)*(8+float(m)/2)+(float(m)+1)%2*float(m)/2); // Node closest to the centre
-  PokeForce = 50;  
+  PokeForce = 50.0;  
   RelaxationRate = 0.98;
   Coord = new float[LastNode+1][3];
   Force = new float[LastNode+1][3];
   Veloc = new float[LastNode+1][3];
   Stiffness = new float[LastNode+1];
-  Fixed = new int[LastNode+1];
+  Fixed = new int[LastNode+1][3];
   Delta = new float[3];
   LastMember=2*m*(m+9)-1; // Counting from zero
-  EA_over_L0 = new float[LastMember+1];
-  T0_minus_EA = new float[LastMember+1];
+  EA = new float[LastMember+1];
+  L0 = new float[LastMember+1];
+  T0 = new float[LastMember+1];
   End = new int[LastMember+1][2];
   ScaleFactor=10;
   float a=float(height)/(1.5*2.0*ScaleFactor);
@@ -94,7 +98,7 @@ void setup()
       Coord[Node][0]=a*cos(Theta)/float(m/m)*xScale;//Position in x axis
       Coord[Node][1]=a*sin(Theta)/float(m/m)*yScale;//Position in y axis
       Coord[Node][2]=HeightScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
-      if ((i+1)%1==0)Fixed[Node]=1;
+      if ((i+1)%1==0) for (int xyz=0;xyz<=2;xyz++) Fixed[Node][xyz]=1;
     }
     
     // Cable Net
@@ -107,40 +111,41 @@ void setup()
           Coord[Node][1]= a*(j-float(m-1)/2)/float(m);//(a*j)/m-2*m; //Position in y axis
           Coord[Node][2]=HeightScale*(pow(Coord[Node][0],2)-pow(Coord[Node][1],2))/a;//Position in z axis
 //          println(Node+" has " + Coord[Node][0] + ", "+ Coord[Node][1]);
-          if(Fixed[Node]==0)
-            for(int xyz=0;xyz<=2;xyz++)Coord[Node][xyz]*=1;
       }
     }
     println("Check on last node number: Should be " + Node + " and is "+ LastNode);
   }
   {
-    float NetEA_over_L0=1.0;
-    float NetT0_minus_EA=-NetEA_over_L0*a/float(m);
-    float EdgeEA_over_L0=1.0*float(m)*NetEA_over_L0;
-    float EdgeT0_minus_EA=0.0;
-    int Member=-1;
+    float NetEA = 10;
+    float NetT0 = -NetEA*a/float(m);
+    float EdgeEA = 2000000.0*NetEA;
+    float EdgeT0 = -EdgeEA*a/float(m);
+
+    int Member = -1;
 
     // Internal Ring
     for(int i=0;i<4*m;i++)
     {
       Member++;
-      EA_over_L0[Member]=EdgeEA_over_L0;
-      T0_minus_EA[Member]=EdgeT0_minus_EA;
       End[Member][0]=i;
       if ((i+1)==4*m) End[Member][1]=0;
       else End[Member][1]=i+1;
+      L0[Member] = Length(Member);
+      EA[Member] = EdgeEA*L0[Member];
+      T0[Member] = EdgeT0+EA[Member];
+      println( EA[Member]/L0[Member]);      
     }
-
 
     // External Ring
     for(int i=0;i<4*m;i++)
     {
       Member++;
-      EA_over_L0[Member]=EdgeEA_over_L0;
-      T0_minus_EA[Member]=EdgeT0_minus_EA;
       End[Member][0]=4*m+i;
       if ((i+1)==4*m) End[Member][1]=4*m;
       else End[Member][1]=4*m+i+1;
+      L0[Member] = Length(Member);
+      EA[Member] = EdgeEA*L0[Member];
+      T0[Member] = EdgeT0+EA[Member];
 //      println("Connect " + End[Member][0] + " with "+ End[Member][1]);      
     }
     
@@ -149,18 +154,20 @@ void setup()
     {
       // LHS Member
       Member++;
-      EA_over_L0[Member]=EdgeEA_over_L0;
-      T0_minus_EA[Member]=EdgeT0_minus_EA;
       End[Member][0]=i;
       End[Member][1]=i+4*m;
+      L0[Member] = Length(Member);
+      EA[Member] = EdgeEA*L0[Member];
+      T0[Member] = EdgeT0+EA[Member];
 //      println("Connect " + End[Member][0] + " with "+ End[Member][1]);
       // RHS Member
       Member++;
-      EA_over_L0[Member]=EdgeEA_over_L0;
-      T0_minus_EA[Member]=EdgeT0_minus_EA;
       if ((i+1)==4*m) End[Member][1]=0;
       else End[Member][0]=i+1;
-      End[Member][1]=i+4*m;   
+      End[Member][1]=i+4*m;
+      L0[Member] = Length(Member);
+      EA[Member] = EdgeEA*L0[Member];
+      T0[Member] = EdgeT0+EA[Member];
 //      println("Connect " + End[Member][0] + " with "+ End[Member][1]);  
     }
     
@@ -171,34 +178,38 @@ void setup()
       {
         if (j==0) {
           Member++;
-          EA_over_L0[Member]=NetEA_over_L0;
-          T0_minus_EA[Member]=NetT0_minus_EA;
           End[Member][0]=i;//Ring
           End[Member][1]=8*m+(m*j)+i;//Grid
+          L0[Member] = Length(Member);
+          EA[Member] = NetEA*L0[Member];
+          T0[Member] = NetT0+EA[Member];         
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }
         if (j==(m-1)) {
           Member++;
-          EA_over_L0[Member]=NetEA_over_L0;
-          T0_minus_EA[Member]=NetT0_minus_EA;
           End[Member][0]=3*m-i-1;//Ring
           End[Member][1]=8*m+(m*j)+i;//Grid
+          L0[Member] = Length(Member);
+          EA[Member] = NetEA*L0[Member];
+          T0[Member] = NetT0+EA[Member];               
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }      
         if (i==0) {
           Member++;
-          EA_over_L0[Member]=NetEA_over_L0;
-          T0_minus_EA[Member]=NetT0_minus_EA;
           End[Member][0]=4*m-(j+1);//Ring
           End[Member][1]=8*m+(m*j);//Grid
+          L0[Member] = Length(Member);
+          EA[Member] = NetEA*L0[Member];
+          T0[Member] = NetT0+EA[Member];               
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }
         if (i==(m-1)) {
           Member++;
-          EA_over_L0[Member]=NetEA_over_L0;
-          T0_minus_EA[Member]=NetT0_minus_EA;
           End[Member][0]=m+j;//Ring
           End[Member][1]=8*m+m*(j+1)-1;//Grid
+          L0[Member] = Length(Member);
+          EA[Member] = NetEA*L0[Member];
+          T0[Member] = NetT0+EA[Member];               
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }  
       }
@@ -211,18 +222,20 @@ void setup()
       {
         if(i<m-1){
           Member++;
-          EA_over_L0[Member]=NetEA_over_L0;
-          T0_minus_EA[Member]=NetT0_minus_EA;
           End[Member][0]=8*m+j*m+i;
           End[Member][1]=8*m+j*m+i+1;
+          L0[Member] = Length(Member);
+          EA[Member] = NetEA*L0[Member];
+          T0[Member] = NetT0+EA[Member];               
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }
         if(j<m-1){
           Member++;
-          EA_over_L0[Member]=NetEA_over_L0;
-          T0_minus_EA[Member]=NetT0_minus_EA;
           End[Member][0]=8*m+j*m+i;
           End[Member][1]=8*m+j*m+i+m;
+          L0[Member] = Length(Member);
+          EA[Member] = NetEA*L0[Member];
+          T0[Member] = NetT0+EA[Member];                
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }
       }
@@ -232,13 +245,15 @@ void setup()
     LastMember = Member;
   }
   
-  for(int Node=0;Node<=LastNode;Node++)Stiffness[Node]=0.0;
+  for(int Node=0;Node<=LastNode;Node++) Stiffness[Node]=0.0;
+  
   for(int Member=0;Member<=LastMember;Member++)
   {
-    Stiffness[End[Member][0]]+=EA_over_L0[Member];
-    Stiffness[End[Member][1]]+=EA_over_L0[Member];
+    Stiffness[End[Member][0]]+=EA[Member]/L0[Member];
+    Stiffness[End[Member][1]]+=EA[Member]/L0[Member];
   }
 }
+
 float PTextX=50.0;
 float PTextY=400.0;
 float TextYInterval=30.0;
@@ -254,6 +269,7 @@ float xTrans=0.0,yTrans=0.0;
 float theta=0.0;
 float MaxForce;
 float ForceRatio;
+boolean Fast = false;
 
 void draw()
 {
@@ -306,8 +322,13 @@ void draw()
     for(int xyz=0;xyz<=2;xyz++)Force[Node][xyz]=0.0;
   }
   
-  if (Pokable&&mousePressed){
-    if(mouseEvent.getClickCount()==2){
+  if (keyPressed){
+    if(key=='f') frameRate (30);
+    if(key=='s') frameRate (5);
+  }  
+  
+  if (Pokable&&keyPressed){
+    if(key=='p'){
       if (m%2==0) {
         Force[PokeNode][2]+=PokeForce/4;
         Force[PokeNode-1][2]+=PokeForce/4;
@@ -320,26 +341,32 @@ void draw()
       }
     }
   }
+  
+  if (Releasable&&keyPressed){
+    if(key=='r'){
+      for(int i=4*m;i<8*m;i++)
+      {
+        if ((i+1)%(4*m)==0) for (int xyz=0;xyz<=2;xyz++) Fixed[i][xyz]=1;
+        else for (int xyz=0;xyz<=1;xyz++) Fixed[i][xyz]=0;
+      }
+    }
+  }    
 
-  //Force[][2]+=0*sin(Theta);
-  //Theta+=PI/4;
+  // Force[][2]+=0*sin(Theta);
+  // Theta+=PI/4;
 
+  // Start Relaxing
   if (Relaxable){
     for(int Member=0;Member<=LastMember;Member++)
     {
       float LengthSq=0.0;
-      for(int xyz=0;xyz<=2;xyz++)
-      {
-        Delta[xyz]=Coord[End[Member][1]][xyz]-Coord[End[Member][0]][xyz];
-        LengthSq+=Delta[xyz]*Delta[xyz];
-      }
       //Tension = T = T0 + (EA/L0)*(L - L0)
       //TensionCoefficient = T/L = EA/L0 + (T0 - EA)/L
-      float TensionCoefficient=EA_over_L0[Member];
-      if(T0_minus_EA[Member]!=0.0)TensionCoefficient+=T0_minus_EA[Member]/sqrt(LengthSq);
+      float TensionCoefficient=EA[Member]/L0[Member]+(T0[Member]-EA[Member])/Length(Member);
+//      if(T0_minus_EA[Member]!=0.0)TensionCoefficient+=T0_minus_EA[Member]/sqrt(LengthSq);
       for(int xyz=0;xyz<=2;xyz++)
       {
-        float ForceComponent=TensionCoefficient*Delta[xyz];
+        float ForceComponent=TensionCoefficient*(Coord[End[Member][1]][xyz]-Coord[End[Member][0]][xyz]);
         Force[End[Member][0]][xyz]+=ForceComponent;
         Force[End[Member][1]][xyz]-=ForceComponent;
       }
@@ -347,18 +374,27 @@ void draw()
     
     for(int Node=0;Node<=LastNode;Node++)
     {
-      if(Fixed[Node]==0)
+      for(int xyz=0;xyz<=2;xyz++)
       {
-        for(int xyz=0;xyz<=2;xyz++)
+        if(Fixed[Node][xyz]==0)
         {
-          Veloc[Node][xyz]=RelaxationRate*Veloc[Node][xyz]+Force[Node][xyz]/Stiffness[Node];
-          Coord[Node][xyz]+=Veloc[Node][xyz];
+        println('.');
+        RelaxationRate = 0.98;
+        Veloc[Node][xyz]=RelaxationRate*Veloc[Node][xyz]+Force[Node][xyz]/Stiffness[Node];
+        Coord[Node][xyz]+=Veloc[Node][xyz];
         }
       }
     }
   }
+  // Finish Relaxing
+  
+  // Keep count of iterations
+  Iteration++;
 
+  // Start Drawing
   text("Zoom",TextX,TextY);
+  fill(255,255,255,255);
+  text("Iteration "+ Iteration,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
   translate(float(width)/2.0,float(height)/2.0);
   ortho(-float(width)/2.0,float(width)/2.0,-float(height)/2.0,float(height)/2.0,-width,width);
   rotateX(-xRot);
@@ -368,8 +404,7 @@ void draw()
   smooth();
   //strokeWeight(1.0/ScaleFactor);//OPENGL
   strokeWeight(1.0);//P3D
-  stroke(255,255,255,100);
-  fill(255,255,255,255);  
+  stroke(255,255,255,100);  
   for(int Member=0;Member<=LastMember;Member++)
   {
     // Colour the force 
@@ -377,23 +412,21 @@ void draw()
        float ThisForceSquared=0.0;
        for(int xyz=0;xyz<=2;xyz++){
          ThisForceSquared += pow(Force[End[Member][0]][xyz]+Force[End[Member][1]][xyz],2);
+         ForceColour[xyz] = 255-255*int(pow(pow(Force[End[Member][0]][xyz]+Force[End[Member][1]][xyz],2),0.5)/MaxForce);
        }
+      
        float ThisForce = pow(ThisForceSquared,0.5);
-       if (ThisForce>MaxForce) {
-         MaxForce = ThisForce;         
-       }
-       ForceRatio = ThisForce/MaxForce*100;
-       for(int xyz=0;xyz<=2;xyz++){
-         ForceColour[xyz] = 255-int(float(ForceInitialColour[xyz])*ForceRatio);
-       }       
+
+       if (ThisForce>MaxForce) MaxForce=ThisForce;
        stroke(ForceColour[0],ForceColour[1],ForceColour[2],255);
+       MaxForce=pow(MaxForce,0.5);             
     }
        
     if (MemberColoured&&!ForceColoured){
       if (Member<4*m) stroke(InnerRing);
       else if (Member<8*m) stroke(OuterRing);
       else if (Member<16*m) stroke(Truss);
-      else stroke(int(float(Member)/float(LastMember)*Cables),int(float(Member)/float(LastMember)*Cables),int(float(Member)/float(LastMember)*Cables),255);
+      else stroke(Cables);
     }
       
     // Code to determine the first member and the first member connecting to the cable    
@@ -404,10 +437,15 @@ void draw()
     line(Coord[End[Member][0]][0],Coord[End[Member][0]][1],Coord[End[Member][0]][2],
     Coord[End[Member][1]][0],Coord[End[Member][1]][1],Coord[End[Member][1]][2]);
   }
-  Iteration++;
-  text("Iteration "+ Iteration,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
-  text("MaxForce "+ MaxForce,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
-  text("ForceRatio "+ ForceRatio,PTextX,PTextY+TextYInterval*TextCount);TextCount++;    
-  MaxForce*=0.99;
+  // Finish Drawing
 }
 
+float Length(int Member){
+  float x1 = Coord[End[Member][0]][0];
+  float x2 = Coord[End[Member][1]][0];
+  float y1 = Coord[End[Member][0]][1];
+  float y2 = Coord[End[Member][1]][1];
+  float z1 = Coord[End[Member][0]][2];
+  float z2 = Coord[End[Member][1]][2];
+  return sqrt(pow(x2-x1,2)+pow(y2-y1,2)+pow(z2-z1,2));
+}
