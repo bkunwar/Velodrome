@@ -161,21 +161,24 @@ void draw() {
     }
     
     if (Iteration==ReleaseTrigger) {
-      ResetMemberLength(16*m,LastMember);
+      //ResetMemberLength(16*m,LastMember);
       Release();
     }
   
-    if (Iteration==ClosingTrigger) {
-      Output.close();
-        if(Variable==1){
+    if (Iteration>=ClosingTrigger-1) {
+        if(Variable==0){
+          OutputProperties();   
+          Output.close();          
+          println("End of analysis.");
+          noLoop();          
+        } else if(Variable==1){
           m+=10;
           if (m<100) setup();
+          Variable=0;
         } else if(Variable==2){
-          CableT0+=0.1*CableEA/float(m);
-          if (CableT0<CableEA/float(m)) setup();
-        } else {
-          println("End of analysis");
-          noLoop();
+          CableT0+=P0;
+          if (CableT0<1*P0) setup();
+          Variable=0;
         }
     }
   }  

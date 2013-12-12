@@ -5,10 +5,7 @@ String FileName = "Output ";
 String FileExtension = ".csv";
 PrintWriter Output;
 
-int WriteInterval = 50,
-    ReleaseTrigger = 500,
-    ClosingTrigger = 10000,
-    Iteration,
+int Iteration,
     
     n,
     o,

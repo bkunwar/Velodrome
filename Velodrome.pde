@@ -1,6 +1,9 @@
 int m = 30,
     // Variable: 1 = m varies, 2 = CableT0 Varies
-    Variable = 2;
+    Variable = 2,
+    WriteInterval = 50,
+    ReleaseTrigger = 500,
+    ClosingTrigger = 1000;
 
 float // in mm
       TrussRadius    = 200.0,
@@ -14,18 +17,17 @@ float // in mm
       TrussE = 200*pow(10,3),
       CableE = 200*pow(10,3),
       
-      TrussA = PI*(pow(TrussRadius,2)
-               -pow(TrussRadius-TrussThickness,2)),
+      TrussA = PI*(pow(TrussRadius,2)-pow(TrussRadius-TrussThickness,2)),
       CableA = PI*(pow(CableRadius,2)),
       
       // in N
       CableEA = CableE*CableA,  
       TrussEA = TrussE*TrussA,
       
-      Pretension = 0.1*CableEA/float(m);
+      P0 = 0.1*CableEA/float(m),
       
       // in N
-      CableT0 = Pretension,
+      CableT0 = P0,
       TrussT0 = 0,              
       Load = CableT0,
       
@@ -35,7 +37,7 @@ boolean Relaxable           = true,
         ForceColoured       = false, 
         MemberColoured      = true, 
         FirstMemberColoured = false,
-        ConstantStiffness   = false,
+        ConstantStiffness   = true,
         EdgeTangentCable    = true,
         OutputEnabled       = true,
         Fast                = false,
@@ -94,7 +96,6 @@ void setup(){
     int FileNumber;
     for (FileNumber=0;FileExists(FileNumber);FileNumber++);
     Output = createWriter(dataPath(FileName+FileNumber+FileExtension));
-    
     println ("Output will be saved to the file: "+FileName+FileNumber+FileExtension);
   }
 

@@ -44,21 +44,19 @@ boolean FileExists(int TemporaryFile){
 }
 
 void OutputProperties(){
-  if(OutputEnabled){
-    Output.println("m,"+m);
-    Output.println("Variable,"+Variable);
-    Output.println("TrussRadius,"+TrussRadius);
-    Output.println("TrussThickness,"+TrussThickness);
-    Output.println("InnerTrussLength,"+InnerTrussLength);
-    Output.println("TrussE,"+TrussE);
-    Output.println("CableE,"+CableE);
-    Output.println("TrussA,"+TrussA);
-    Output.println("CableA,"+CableA);
-    Output.println("TrussEA,"+TrussEA);
-    Output.println("CableEA,"+CableEA);
-    Output.println("TrussT0,"+TrussT0);
-    Output.println("CableT0,"+CableT0);
-    Output.println("ConstantStiffness,"+ConstantStiffness);
-    Output.println("EdgeTangentCable,"+EdgeTangentCable);
-  }
+  Output.println(",,,,m,"+m);
+  Output.println(",,,,Variable,"+Variable);
+  Output.println(",,,,TrussRadius,"+TrussRadius);
+  Output.println(",,,,TrussThickness,"+TrussThickness);
+  Output.println(",,,,InnerTrussLength,"+InnerTrussLength);
+  Output.println(",,,,TrussE,"+TrussE);
+  Output.println(",,,,CableE,"+CableE);
+  Output.println(",,,,TrussA,"+TrussA);
+  Output.println(",,,,CableA,"+CableA);
+  Output.println(",,,,TrussEA,"+TrussEA);
+  Output.println(",,,,CableEA,"+CableEA);
+  Output.println(",,,,TrussT0,"+TrussT0);
+  Output.println(",,,,CableT0,"+CableT0);
+  Output.println(",,,,ConstantStiffness,"+ConstantStiffness);
+  Output.println(",,,,EdgeTangentCable,"+EdgeTangentCable);
 }
