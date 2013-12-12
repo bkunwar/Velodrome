@@ -14,7 +14,7 @@ int [][] End;
 int[][] Fixed;
 int[] ForceColour;
 float[] ForceInitialColour;
-int m;
+int m = 100;
 float ScaleFactor;
 int LastMember,LastNode;
 boolean Relaxable;
@@ -27,7 +27,8 @@ int PokeNode;
 int Iteration;
 float PokeForce;
 float RelaxationRate;
-float InitialPosition;
+float X0;
+float Y0;
 color Truss;
 color InnerRing;
 color OuterRing;
@@ -55,11 +56,10 @@ void setup()
   ForceInitialColour = new float[3];
   float[] ForceInitialColour = {255,0,0};
   ForceColour = new int[3];  
-  m=11;//Must be even;
   LastNode=m*(m+8)-1; // Counting from zero
   PokeNode = int(float(m)*(8+float(m)/2)+(float(m)+1)%2*float(m)/2); // Node closest to the centre
   PokeForce = -100;  
-  RelaxationRate = 0.90;
+  RelaxationRate = 0.98;
   Coord = new float[LastNode+1][3];
   Force = new float[LastNode+1][3];
   Veloc = new float[LastNode+1][3];
@@ -119,8 +119,8 @@ void setup()
   }
   {
     float NetEA = 1;
-    float NetT0 = -1*NetEA*a/float(m);
-    float EdgeEA = 1000.0*NetEA;
+    float NetT0 = -0.5*NetEA*a/float(m);
+    float EdgeEA = pow(10,3)*NetEA;
     float EdgeT0 = -1.5*EdgeEA*a/float(m);
 
     int Member = -1;
@@ -237,7 +237,7 @@ void setup()
           End[Member][1]=8*m+j*m+i+m;
           L0[Member] = Length(Member);
           EA[Member] = NetEA*L0[Member];
-          T0[Member] = NetT0+EA[Member];                
+          T0[Member] = NetT0+EA[Member];
 //          println("Connect " + End[Member][0] + " with "+ End[Member][1]);
         }
       }
@@ -255,7 +255,9 @@ void setup()
     Stiffness[End[Member][1]]+=EA[Member]/L0[Member];
   }
   
-  InitialPosition = Coord[int(7.5*float(m))-1][0];
+  X0 = Coord[int(5.5*float(m))-1][0]-Coord[int(7.5*float(m))-1][0];
+  Y0 = Coord[int(6.5*float(m))-1][1]-Coord[int(4.5*float(m))-1][1];
+  println(X0+","+Y0);
 }
 
 float PTextX=50.0;
@@ -273,7 +275,8 @@ float xTrans=0.0,yTrans=0.0;
 float theta=0.0;
 float MaxForce;
 float ForceRatio;
-float Displacement;
+float dX;
+float dY;
 boolean Fast = false;
 boolean Released = false;
 
@@ -327,13 +330,15 @@ void draw()
   {
     for(int xyz=0;xyz<=2;xyz++)Force[Node][xyz]=0.0;
   }
-  
+
   if (keyPressed){
     if(key=='f') frameRate (30);
-    if(key=='s') frameRate (5);
-  }  
-  
-  if (Pokable&&keyPressed){
+    if(key=='g') frameRate (5);
+    if(key=='u') for(int i=8*m;i<=LastNode;i++) Force[i][2]+=PokeForce/pow(m,2);
+    if(key=='h') for(int i=8*m;i<=LastNode;i++) Force[i][0]+=PokeForce/pow(m,2);
+    if(key=='a') PokeForce*=1.1;
+    if(key=='s') PokeForce=PokeForce/1.1;
+    if(key=='n') setup();
     if(key=='p'){
       if (m%2==0) {
         Force[PokeNode][2]+=PokeForce/4;
@@ -352,14 +357,17 @@ void draw()
     if(key=='r'){
       for(int i=0;i<8*m;i++) for (int xyz=0;xyz<=2;xyz++) Fixed[i][xyz]=0; // Release all
       for(int i=0;i<8*m;i++) for (int xyz=2;xyz<=2;xyz++) Fixed[i][xyz]=1; // Fix all in y and z direction   
-      for (int xyz=0;xyz<=1;xyz++) Fixed[int(5.5*float(m))-1][xyz]=1;
-      if (m%2==1) for (int xyz=0;xyz<=1;xyz++) Fixed[int(5.5*float(m))][xyz]=1;
+      //for (int xyz=0;xyz<=1;xyz++) Fixed[int(5.5*float(m))-1][xyz]=1;
+      //if (m%2==1) for (int xyz=0;xyz<=1;xyz++) Fixed[int(5.5*float(m))][xyz]=1;
       Released = true;
     }
   }
   
   if (Released){
-    Displacement = Coord[int(7.5*float(m))-1][0] - InitialPosition;
+    float X = Coord[int(5.5*float(m))-1][0]-Coord[int(7.5*float(m))-1][0];
+    float Y = Coord[int(6.5*float(m))-1][1]-Coord[int(4.5*float(m))-1][1];
+    dX = X0 - X;
+    dY = Y0 - Y;
   }
   
   // Force[][2]+=0*sin(Theta);
@@ -402,8 +410,11 @@ void draw()
   // Start Drawing
   text("Zoom",TextX,TextY);
   fill(255,255,255,255);
-  text("Iteration "+ Iteration,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
-  text("Displacement "+ Displacement,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
+  text("Iteration "+Iteration,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
+  text("Poke Force "+PokeForce,PTextX,PTextY+TextYInterval*TextCount);TextCount++;
+  text("dX "+dX,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
+  text("dY "+dY,PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
+  text("dY/dX "+(dY/dX),PTextX,PTextY+TextYInterval*TextCount);TextCount++;  
   translate(float(width)/2.0,float(height)/2.0);
   ortho(-float(width)/2.0,float(width)/2.0,-float(height)/2.0,float(height)/2.0,-width,width);
   rotateX(-xRot);
