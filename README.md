@@ -1,4 +1,0 @@
-Velodrome
-=========
-
-My MEng Dissertation
