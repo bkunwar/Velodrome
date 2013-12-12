@@ -35,8 +35,8 @@ void draw() {
       int SupportDetail = 24;
       for (int i = 0; i < SupportDetail; i++) {
         float Phi = i * 2 * PI / SupportDetail;
-        float SupportHeight = WidestInnerRadius / 50;
-        float SupportRadius = WidestInnerRadius / 100;
+        float SupportHeight = Ri / 50;
+        float SupportRadius = Ri / 100;
         line(X[Node][0], X[Node][1], X[Node][2], X[Node][0] + SupportRadius * cos(Phi), X[Node][1] + SupportRadius * sin(Phi), X[Node][2] - SupportHeight);
       }
     }
@@ -88,7 +88,7 @@ void Relax() {
 
       HandleMousePress(); 
       HandleKeyPress();
-      
+
       ApplyCableLoads();      
       ResetNodeStiffness();      
 
@@ -97,9 +97,9 @@ void Relax() {
         float TC;
 
         Tf[Member] = Ti[Member] + (EA[Member] / Li[Member]) * (Lf[Member] - Li[Member]);
-        if (!CableCompressible && Member >= 16 * m && Tf[Member] < 0) Tf[Member] = 0;
+        if (Member >= 16 * m && Tf[Member] < 0) Tf[Member] = 0;
 
-        //if (Iteration%1000 == 0) println(Tf[Member]);
+        // if (Iteration%1000 == 0) println(Tf[Member]);
 
         TC = -Tf[Member] / Li[Member];
 
@@ -155,12 +155,14 @@ void SlideCables() {
           }
         }
 
-        float TensionOverEA = (SumLf - SumLi) / SumLi;
+        //float TfOverEA = (CableTi / CableEA) + (SumLf - SumLi) / SumLi;
+        // UNSURE ABOUT THIS
+        float dTOverEA = (SumLf - SumLi) / SumLi;        
         //if (Iteration%1000 == 0) println(TensionOverEA);
         for (int CableLink = 0; CableLink <= LastCableLink; CableLink++) {
           int Member = CL[Cable][CableLink][xy];
           if (Member != 0) {
-            Lf[Member] = Li[Member] * (1 + TensionOverEA);
+            Li[Member] = Lf[Member] / (1 + dTOverEA);
           }
         }
       }
@@ -323,21 +325,25 @@ void Release() {
 }
 
 void ApplyCableLoads () {
-  for (int xyz = 0; xyz <=2; xyz++) {
-    if (UDLon[xyz]) {
-      for (int Node = 8 * m; Node <= LastNode; Node++)
-        F[Node][xyz] += Load / (LastNode - 16 * m + 1);
-    }
-    if (PLon) {
-      if (m % 2 == 0) {
-        F[CentralNode][2] += Load / 4;
-        F[CentralNode - 1][2] += Load / 4;
-        F[CentralNode - m][2] += Load / 4;
-        F[CentralNode - m - 1][2] += Load / 4;
-      } 
-      else {
-        F[CentralNode][2] += Load;
+  // UDL factor applied on the nodes which is a function of the geometry's strained shape, the final length, which is predefined (Unit: per Length, NOT force per length as it is multiplied with Load)
+  if (UDLon) {
+    for (int Member = 16 * m; Member <= LastMember; Member++) {
+      for (int ThisEnd = 0; ThisEnd <= 1; ThisEnd++) {
+        F[End[Member][ThisEnd]][2] += UDL * Lf[Member] / 2;
       }
+    }
+  }
+  if (PLon) {
+    float PL = UDL * PLfactor;
+    if (m % 2 == 0) {
+      PL /= 4;
+      F[CentralNode][2] += PL;
+      F[CentralNode - 1][2] += PL;
+      F[CentralNode - m][2] += PL;
+      F[CentralNode - m - 1][2] += PL;
+    } 
+    else {
+      F[CentralNode][2] += PL;
     }
   }
 }
@@ -353,16 +359,16 @@ void HandleKeyPress() {
     if (key == 'q') Quit = true;
 
     // Increase or decrease poke F
-    if (key == 'a') Load *= 1 + 0.1 / float(DisplayInterval);
-    if (key == 's') Load /= 1 + 0.1 / float(DisplayInterval);
+    if (key == 'a') UDL *= 1 + 0.1 / float(DisplayInterval);
+    if (key == 's') UDL /= 1 + 0.1 / float(DisplayInterval);
 
-    // UDL in x, y or z direction 
-    if (key == 'o') for (int Node = 8 * m; Node <= LastNode; Node++) UDLon[0] = !UDLon[0];
-    if (key == 'i') for (int Node = 8 * m; Node <= LastNode; Node++) UDLon[1] = !UDLon[1];
-    if (key == 'l') for (int Node = 8 * m; Node <= LastNode; Node++) UDLon[2] = !UDLon[2];
+    // UDL in z direction 
+    if (key == 'u') UDLon = true;
+    if (key == 'i') UDLon = false;
 
-    // Poke in
-    if (key == 'p') PLon = !PLon;
+    // Point load in z direction
+    if (key == 'o') PLon = true;
+    if (key == 'p') PLon = false;    
 
     // Zoom in and out
     if (key == 'z') ScaleFactor *= 1 + 0.1 / float(DisplayInterval);
@@ -407,14 +413,8 @@ void HandleVariables() {
   ThisTest++;
   if (!FailureInitial && !FailureFinal && !Quit) {
     if (Variable == 1) {
-      m += dm;
-    } 
-    else if (Variable == 2) {
       CableTi += dP;
     } 
-    else if (Variable == 3) {
-      TrussThickness -= dTT;
-    }
     setup();
     NewCycle = true;
   } 
@@ -439,7 +439,9 @@ void InitiateSummaryOutput() {
       if (!FileExists(CurrentSummaryFileName)) FileFree = true;
     }
     SummaryOutput = createWriter(dataPath(CurrentSummaryFileName + FileExtension));
-    SummaryOutput.println("Iteration," +
+    SummaryOutput.println(
+    "Iteration," +
+      "CableTi/DOF," +      
       "dX," +
       "dY," +
       "dC," +
@@ -512,10 +514,13 @@ void HandleFileOutput() {
         dC);
     }
 
-    if (Iteration == ClosingTrigger) {
+    if (Iteration == ClosingTrigger) {      
       CloseOutput();
+      MeasureDisplacements();
+      MeasureMemberStress();
       SummaryOutput.println(
       Iteration + "," + 
+        LastCable * CableTi + "," +
         dX + "," + 
         dY + "," + 
         dC + "," + 
@@ -562,6 +567,7 @@ void HandleFileOutput() {
 // Close the output
 void CloseOutput() {
   Output.println(",,,,m," + m);
+  Output.println(",,,,CableTi/DOF," + LastCable * CableTi);    
   Output.println(",,,,Variable," + Variable);
   Output.println(",,,,TrussRadius," + TrussRadius);
   Output.println(",,,,TrussThickness," + TrussThickness);
@@ -605,77 +611,69 @@ void CloseSummaryOutput() {
 
 // Determine the colour of the members
 void DetermineMemberColour(int Member) {
-  switch (Colour) {
-  case 'A':
-    if (Member == 0 || Member == 16 * m) stroke(200, 0, 0, 255);
-    else stroke(0, 0, 0, 255);
-    break;
-  case 'F':
-    float Stress = 0.0;
-    float MinStressC = 0.0;    
-    float MinStressT = 0.0;    
-    float dStressC = 0.0;
-    float dStressT = 0.0;
-    int MemberColour;
-    if (Member < 16 * m) {
-      MemberColour = TrussColour;
-      if (InitialGeometry) {
-        Stress = Ti[Member] / TrussA;
-        MinStressT = MinTrussTi;
-        MinStressC = MinTrussCi;        
-        dStressT = dTrussTi;
-        dStressC = dTrussCi;
-      } 
-      else {
-        Stress = Tf[Member] / TrussA;
-        MinStressT = MinTrussTf;
-        MinStressC = MinTrussCf;        
-        dStressT = dTrussTf;
-        dStressC = dTrussCf;
-      }
+  float Stress = 0.0;
+  float MinStressC = 0.0;    
+  float MinStressT = 0.0;    
+  float dStressC = 0.0;
+  float dStressT = 0.0;
+  int MemberColour;
+  if (Member < 16 * m) {
+    MemberColour = TrussColour;
+    if (InitialGeometry) {
+      Stress = Ti[Member] / TrussA;
+      MinStressT = MinTrussTi;
+      MinStressC = MinTrussCi;        
+      dStressT = dTrussTi;
+      dStressC = dTrussCi;
     } 
     else {
-      MemberColour = CableColour;
-      if (InitialGeometry) {
-        Stress = Ti[Member] / CableA;
-        MinStressT = MinCableTi;        
-        MinStressC = MinCableCi;            
-        dStressT = dCableTi;
-        dStressC = dCableCi;
-      } 
-      else {
-        Stress = Tf[Member] / CableA;
-        MinStressT = MinCableTf;                
-        MinStressC = MinCableCf;                        
-        dStressT = dCableTf;
-        dStressC = dCableCf;
-      }
+      Stress = Tf[Member] / TrussA;
+      MinStressT = MinTrussTf;
+      MinStressC = MinTrussCf;        
+      dStressT = dTrussTf;
+      dStressC = dTrussCf;
     }
-
-    float ColourFactor = 1;
-    // The member is a tensile member
-    if (Stress > 0) {
-      if (dStressT != 0) ColourFactor = (Stress - MinStressT) / dStressT;
-      stroke(0, 255 - ColourContrast + int(float(ColourContrast) * ColourFactor), MemberColour, 255);
+  } 
+  else {
+    MemberColour = CableColour;
+    if (InitialGeometry) {
+      Stress = Ti[Member] / CableA;
+      MinStressT = MinCableTi;        
+      MinStressC = MinCableCi;            
+      dStressT = dCableTi;
+      dStressC = dCableCi;
+    } 
+    else {
+      Stress = Tf[Member] / CableA;
+      MinStressT = MinCableTf;                
+      MinStressC = MinCableCf;                        
+      dStressT = dCableTf;
+      dStressC = dCableCf;
     }
-    // The member is a compression member
-    else if (Stress < 0) {
-      if (dStressC != 0) ColourFactor = abs(Stress - MinStressC) / dStressC;
-      stroke(255 - ColourContrast + int(float(ColourContrast) * ColourFactor), 0, MemberColour, 255);
-    }
-    // The member is unstressed
-    else stroke(0, 0, 0, 255);
-    break;
   }
+
+  float ColourFactor = 1;
+  // The member is a tensile member
+  if (Stress > 0) {
+    if (dStressT != 0) ColourFactor = (Stress - MinStressT) / dStressT;
+    stroke(0, 255 - ColourContrast + int(float(ColourContrast) * ColourFactor), MemberColour, 255);
+  }
+  // The member is a compression member
+  else if (Stress < 0) {
+    if (dStressC != 0) ColourFactor = abs(Stress - MinStressC) / dStressC;
+    stroke(255 - ColourContrast + int(float(ColourContrast) * ColourFactor), 0, MemberColour, 255);
+  }
+  // The member is unstressed
+  else stroke(0, 0, 0, 255);
 }
 
 // Display text on the window
 void DisplayText() {
   int NewLine = 0;
 
-  text("[ CONTROLS ]    [ <mouse : Rotate ][ >mouse : Rotate ]    [ z: Zoom+ ][ x: Zoom- ]    [ r: Release ]  [ q: Stop Relaxation ]", PTextX, PTextY + DTextY * NewLine);
+  text("[ CONTROLS ]          [ <mouse : Rotate ][ >mouse : Rotate ][ z: Zoom+ ][ x: Zoom- ][ r: Release ][ q: Stop Relaxation ]", PTextX, PTextY + DTextY * NewLine);
   NewLine++;
-  text("[ a: Load+ ][ s: Load- ][ o: UDL x ][ i: UDL y  ][ o: UDL z ][ p: Point Load z ][ <: Initial Geometry ][ >: Final Geometry ]", PTextX, PTextY + DTextY * NewLine);  
+  text("[ a: Load+ ][ s: Load- ][ u: UDL on ][ i: UDL off ][ o: PL on ][ p: PL off ][ <: Initial Geometry ][ >: Final Geometry ]", PTextX, PTextY + DTextY * NewLine);  
   NewLine++;  
   text("----------------------------------------------------------------------------------------------------------------------------", PTextX, PTextY + DTextY * NewLine);  
   NewLine++;  
@@ -708,9 +706,9 @@ void DisplayText() {
   NewLine++;  
   text("m                " + m, PTextX, PTextY + DTextY * NewLine);
   NewLine++;
-  text("x Radius m       " + (WidestInnerRadius * xScale / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
+  text("x Ri m           " + (Ri * xScale / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
   NewLine++;
-  text("y Radius m       " + (WidestInnerRadius * yScale / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
+  text("y Ri m           " + (Ri * yScale / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
   NewLine++;
   text("Circumference m  " + (Circumference / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
   NewLine++;
@@ -722,11 +720,13 @@ void DisplayText() {
   NewLine++;
   text("Scale Factor     " + ScaleFactor, PTextX, PTextY + DTextY * NewLine);
   NewLine++;
-  text("Load kN          " + (Load / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
+  text("UDL N/mm         " + (UDL * int(UDLon)), PTextX, PTextY + DTextY * NewLine);
+  NewLine++;
+  text("Point Load kN    " + (UDL * PLfactor * int(PLon) / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
   NewLine++;
   text("Cable Ti N/mm2   " + (CableTi / CableA), PTextX, PTextY + DTextY * NewLine);
   NewLine++;  
-  text("Cable Ti kN/DOF  " + (LastCable * CableTi), PTextX, PTextY + DTextY * NewLine);
+  text("Cable Ti kN/DOF  " + (LastCable * CableTi / pow(10, 3)), PTextX, PTextY + DTextY * NewLine);
   NewLine++;    
   text("Truss Ti N/mm2   " + (TrussTi / TrussA), PTextX, PTextY + DTextY * NewLine);
   NewLine++;  

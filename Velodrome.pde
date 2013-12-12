@@ -8,16 +8,64 @@
 
 // import processing.opengl.*;
 
+// prestressed final known
+// udl final unknown
+// unstrained final unknown
+
+
 // Primary variables
 int 
-m = 20, // 50
-dm = 5, 
-Variable        = 2, // 1 = m varies, 2 = CableT0 varies, 3 = TrussThickness varies
+m = 10,             // 50
+Variable        = 1, // 1 = CableT0 varies
 ThisTest        = 0, 
 WriteInterval   = 1000, 
-DisplayInterval = WriteInterval, 
+DisplayInterval = 1000,
 ReleaseTrigger  = 0, 
-ClosingTrigger   = 10000;
+ClosingTrigger  = 4000;
+
+// Member attributes in mm
+float 
+TrussRadius    = 40.0, 
+TrussThickness = 10.0, 
+CableRadius    = 10.0,
+InnerTrussLength = 2500.0;
+// Member attributes in N/mm2
+float
+TrussE = 200 * pow(10, 3), 
+CableE = 200 * pow(10, 3), 
+CableTensileStrength = 500, 
+CableCompressiveStrength = 0, 
+TrussTensileStrength     = 500, 
+TrussCompressiveStrength = 500;
+// Loads applied
+float
+dStrain = 0.0001, // 0.2% = 0.002
+UDL      = 5.0,  // in N/mm
+PLfactor = 10.0; // How much bigger than the UDL?
+
+// Boolean settings
+boolean 
+FileOutputEnabled   = true, 
+InitialGeometry     = true,
+PLon                = false,
+UDLon               = false,
+SpecialCase         = true, 
+SlidableCables      = false,
+// Usually false
+CableCompressible   = false,
+// Usually true
+Relaxable           = true,
+TakeScreenshot      = true, 
+ShowSupports        = true, 
+// For program only
+OutputComplete      = false, 
+SummaryInitialized  = false, 
+NewCycle            = false, 
+EquilibriumReached  = false, 
+FailureInitial      = false, 
+FailureFinal        = false, 
+Quit                = false, 
+Released            = false;
 
 // The following are required for operation
 int
@@ -30,7 +78,19 @@ LastMember,
 LastCable, 
 LastCableLink;
 float
-WidestInnerRadius, 
+Ri, 
+Ro,
+Area, 
+Circumference, 
+Theta, 
+ScaleFactor, 
+TotalTrussLength, 
+TotalCableLength, 
+InitialRotation, 
+OuterRingScale;
+// Max or Min, Truss or Cable, Tension or Compression, Initial or Final
+// Convert into an array one day, this is too repetative
+float
 MaxTrussTi, 
 MaxTrussCi, 
 MaxCableTi, 
@@ -54,16 +114,7 @@ dTrussCi,
 dCableTf, 
 dCableCf, 
 dTrussTf, 
-dTrussCf, 
-Area, 
-Circumference, 
-NetScale, 
-Theta, 
-ScaleFactor, 
-TotalTrussLength, 
-TotalCableLength, 
-InitialRotation, 
-OuterRingScale;
+dTrussCf;
 
 // Measurement pointers
 float
@@ -77,23 +128,6 @@ X0,
 Y0, 
 C0;
 
-// Member attributes in mm
-float 
-TrussRadius    = 40.0, 
-TrussThickness = 10.0, 
-dTT            = 1.0, 
-CableRadius    = 10.0, 
-InnerTrussLength = 2500.0;
-
-// Member attributes in N/mm2
-float
-TrussE = 200 * pow(10, 3), 
-CableE = 200 * pow(10, 3), 
-CableTensileStrength = 500, 
-CableCompressiveStrength = 0, 
-TrussTensileStrength = 500, 
-TrussCompressiveStrength = 350;
-
 // The following are defined in the "setup" subroutine
 float
 TrussA, 
@@ -102,7 +136,6 @@ CableEA,
 TrussEA, 
 CableTi, 
 TrussTi, 
-Load, 
 dP;
 
 // Dimensionless scaling factors
@@ -118,31 +151,6 @@ Damping = 0.98;
 // At what velocity to assume equilibrium in mm/s
 float
 EquilibriumVelocity = 0.1;
-// What colour setting to use?
-char Colour = 'F';  // A=FirstMember, F=MemberForce
-
-// Boolean settings
-
-boolean 
-Relaxable           = true,
-FileOutputEnabled   = false, 
-TakeScreenshot      = true, 
-ShowSupports        = true, 
-InitialGeometry     = true, 
-SlidableCables      = false, 
-FailureInitial      = false, 
-FailureFinal        = false, 
-Quit                = false, 
-SpecialCase         = false, 
-CableCompressible   = false, 
-OutputComplete      = false, 
-SummaryInitialized  = false, 
-NewCycle            = false, 
-EquilibriumReached  = false, 
-Released            = false,
-PLon                = false;
-boolean[]
-UDLon = {false, false, false};
 
 // Output file settings
 String SummaryFileName = "BAT", 
@@ -185,7 +193,8 @@ xRot;
 
 // Node attribute matrices
 float []
-K; // Node Stiffness
+K;   // Node Stiffness
+
 float [][]
 Xi, // Initial coordinate
 Xf, // Final coordinate
@@ -203,7 +212,7 @@ Tf, // Final Tension
 Li, // Initial Length
 Lf; // Final Length
 int [][] 
-End; // Nodes corresponding to the two ends of a given members
+End; // For each member, the nodes corresponding to the two ends of a given members
 
 // Continuous cable properties
 int [][][]
@@ -231,14 +240,15 @@ void setup() {
   LastNode = m * (m + 8) - 1;
   // Counting from zero
   LastMember = 2 * m * (m + 9) - 1;
+  // Counting from zero, total number of cables in each direction
+  LastCable = m - 1;  
 
   if (SpecialCase) {
     LastNode   += (4 * n) * (m - n - 1);
     LastMember += 4 * o * (m - o) + (4 * n) * (m - n - 1);
+    LastCable  += 2 * o;
   }
 
-  // Counting from zero, total number of cables in each direction
-  LastCable = m + 2 * o - 1;
   // Counting from zero, the maximum number of members per cable
   LastCableLink = LastCable + 1;
 
@@ -272,50 +282,35 @@ void setup() {
   // in N
   CableEA = CableE*CableA;
   TrussEA = TrussE*TrussA;
+  
+  // Increment of prestress in N, basically 10th of the cable strain capacity times its EA distributed among all its cables
+  dP = dStrain * CableEA * m / LastCable;
 
-  NetScale = 1 / sqrt(2) * (1 - PI / 4 / float(m)); // To make the net fit within the truss ring
-  WidestInnerRadius = InnerTrussLength * 2 * float(m) / PI;
-  ScaleFactor = float(height) / (3.0 * WidestInnerRadius);
+  Ri = InnerTrussLength * 2 * float(m) / PI;
+  Ro = Ri * OuterRingScale;
+  
+  ScaleFactor = float(height) / (3.0 * Ri);
 
-  Area = PI * pow(WidestInnerRadius, 2) * xScale * yScale;
-  Circumference = PI * WidestInnerRadius * (3 * (xScale + yScale) - sqrt((3 * xScale + yScale) * (xScale + 3 * yScale)));
+  Area = PI * pow(Ri, 2) * xScale * yScale;
+  Circumference = PI * Ri * (3 * (xScale + yScale) - sqrt((3 * xScale + yScale) * (xScale + 3 * yScale)));
 
-  zRot = -PI/3;
-  xRot = -PI/3;
+  //In z, Plan = 0,  Elevation = 0,     Isometric = -PI/3;
+  zRot = 0;
+  //In x, Plan = 0,  Elevation = -PI/2, Isometric = -PI/3;
+  xRot = 0;
   xTrans = 0.0;
   yTrans = 0.0;  
 
   Iteration = 0;
-
-  // Increment of prestress in N
-  dP = 0.0002 * CableEA; // 0.2% = 0.002
-
-  // This is the final stress distribution that we want in the cable
-  if (Variable != 2 || !FileOutputEnabled) 
-    CableTi = dP * 10;
-
-  // For the initial stress distribution, we know that the truss is unstressed
-  TrussTi = 0;
-
-  Load = CableTi * 20;
-
+  Released = false;
+  
   ConstructNodes();
-
-  // We want to start from the final geometry and work our way backwards
-  for (int Node = 0; Node <= LastNode; Node++) {
-    arrayCopy(Xi[Node], Xf[Node]);
-  }
-
   ConstructMembers();
   ConstructCableLinks();
-
   ResetNodeStiffness();
-
   CalculateTotalLength();
   ResetPointers();
-
-  Released = false;
-
+  AssignMemberAttributes();
   InitiateSummaryOutput();
   InitiateOutput();
 }
@@ -332,8 +327,8 @@ void ConstructNodes() {
   for (int i = 0; i < 4 * m; i++) {
     Node++;
     Theta = 2 * PI * i / (4 * m) + InitialRotation;
-    Xi[Node][0] = xScale * WidestInnerRadius * cos(Theta); //Position in x axis
-    Xi[Node][1] = yScale * WidestInnerRadius * sin(Theta); //Position in y axis
+    Xi[Node][0] = xScale * Ri * cos(Theta); //Position in x axis
+    Xi[Node][1] = yScale * Ri * sin(Theta); //Position in y axis
     if ((i + 1) % 1 == 0) for (int xyz = 0; xyz <= 2; xyz++) Fix[Node][xyz] = 1;
   }
 
@@ -341,8 +336,8 @@ void ConstructNodes() {
   for (int i = 0; i < 4 * m; i++) {
     Node++;
     Theta = 2 * PI * i / (4 * m) + PI / (4 * m) + InitialRotation;
-    Xi[Node][0] = xScale * OuterRingScale * WidestInnerRadius * cos(Theta); //Position in x axis
-    Xi[Node][1] = yScale * OuterRingScale * WidestInnerRadius * sin(Theta); //Position in y axis
+    Xi[Node][0] = xScale * Ro * cos(Theta); //Position in x axis
+    Xi[Node][1] = yScale * Ro * sin(Theta); //Position in y axis
     if ((i + 1) % 1 == 0) for (int xyz = 0; xyz <= 2; xyz++) Fix[Node][xyz] = 1;
   }
 
@@ -371,9 +366,14 @@ void ConstructNodes() {
   println("Check on last node number: Should be " + Node + " and is " + LastNode);
   LastNode = Node;
 
-  // Construct the nodes in the z-axis
+  // Determine the co-ordinate the nodes in z-axis
   for (Node = 0; Node <= LastNode; Node++) {
-    Xi[Node][2] = zScale * (pow(Xi[Node][0]/pow(xScale, 1), 2) - pow(Xi[Node][1]/pow(yScale, 1), 2)) / WidestInnerRadius; //Position in z axis
+    Xi[Node][2] = zScale * (pow(Xi[Node][0]/pow(xScale, 1), 2) - pow(Xi[Node][1]/pow(yScale, 1), 2)) / Ri; //Position in z axis
+  }
+
+  // We want to start from the final geometry and work our way backwards so the final geometry is saved as the strained geometry
+  for (Node = 0; Node <= LastNode; Node++) {
+    arrayCopy(Xi[Node], Xf[Node]);
   }
 }
 
@@ -510,33 +510,6 @@ void ConstructMembers() {
   LastMember = Member;
 
   CalculateLi();
-
-  for (Member = 0; Member <= LastMember; Member++) {
-    if (Member < 16 * m) {
-      // For the truss members, Tf and Li are unknown as we  do not know the unstrained geometry or the final stress distribution in the members
-      // However, we do know Ti and Lf, as the initial stress distribution is defined and that the final geometry is the specified geometry
-
-      // Li[Member] = ?
-      // Tf[Member] = ? 
-
-      Lf[Member] = Li[Member];
-      Ti[Member] = TrussTi;
-
-      EA[Member] = TrussEA;
-    } 
-    else {
-      // For the cable members as well, Tf and Li are unknown as we  do not know the unstrained geometry or the final stress distribution in the members
-      // However, we do know Ti and Lf, as the initial stress distribution is defined and that the final geometry is the specified geometry   
-
-      // Li[Member] = ?
-      // Tf[Member] = ? 
-
-      Lf[Member] = Li[Member];
-      Ti[Member] = CableTi;
-
-      EA[Member] = CableEA;
-    }
-  }
 }
 
 void ConstructCableLinks() {
@@ -584,3 +557,39 @@ void ConstructCableLinks() {
   }
 }  
 
+// Assign the attributes to each member
+void AssignMemberAttributes() {
+  
+  // This is the initial prestress that we want in the cable
+  if (Variable != 1 || !FileOutputEnabled) 
+  CableTi = dP;
+  // For the initial stress distribution, we know that the truss is unstressed
+  TrussTi = 0;
+  
+  for (int Member = 0; Member <= LastMember; Member++) {
+    if (Member < 16 * m) {
+      // For the truss members, Tf and Li are unknown as we  do not know the unstrained geometry or the final stress distribution in the members
+      // However, we do know Ti and Lf, as the initial stress distribution is defined and that the final geometry is the specified geometry
+
+      // Li[Member] = ?
+      // Tf[Member] = ? 
+
+      Lf[Member] = Li[Member];
+      Ti[Member] = TrussTi;
+
+      EA[Member] = TrussEA;
+    } 
+    else {
+      // For the cable members as well, Tf and Li are unknown as we  do not know the unstrained geometry or the final stress distribution in the members
+      // However, we do know Ti and Lf, as the initial stress distribution is defined and that the final geometry is the specified geometry   
+
+      // Li[Member] = ?
+      // Tf[Member] = ? 
+
+      Lf[Member] = Li[Member];
+      Ti[Member] = CableTi;
+
+      EA[Member] = CableEA;
+    }
+  }  
+}
