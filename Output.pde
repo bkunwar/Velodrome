@@ -558,7 +558,7 @@ void HandleFileOutput() {
         MinCableCf + "," +
         SlidableCables + "," +                  
         SpecialCase);
-      if (TakeScreenshot) saveFrame(DataFolder + CurrentFileName + ".png");                            
+      if (TakeScreenshot) saveFrame(ResultsFolder + CurrentFileName + ".png");                            
       HandleVariables();
     }
   }
@@ -805,4 +805,3 @@ void DisplayText() {
   text("MinCableC N/mm2  " + (MinCableC / pow(10, 0)), PTextX, PTextY + DTextY * NewLine);
   NewLine++;
 }
-
